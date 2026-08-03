@@ -13,7 +13,7 @@ on:
         default: makefile
 
 env:
-  PROJECT_NAME: TemplateProject
+  PROJECT_NAME: Sparkles
 
 jobs:
   build-makefile:

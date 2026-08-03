@@ -10,4 +10,4 @@ include(${IPLUG2_DIR}/iPlug2.cmake)
 
 find_package(iPlug2 REQUIRED)
 
-add_subdirectory(TemplateProject)
+add_subdirectory(Sparkles)

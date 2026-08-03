@@ -23,9 +23,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: [TemplateProject]
+        project: [Sparkles]
         # Add more projects here:
-        # project: [TemplateProject, VisageTemplate]
+        # project: [Sparkles, VisageTemplate]
 
     steps:
     - name: Check out repository
@@ -130,9 +130,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: [TemplateProject]
+        project: [Sparkles]
         # Add more projects here:
-        # project: [TemplateProject, VisageTemplate]
+        # project: [Sparkles, VisageTemplate]
 
     steps:
       - name: Download artifact
