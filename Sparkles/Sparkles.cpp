@@ -1,4 +1,20 @@
 //build with Sparkles\scripts\build-vst3-win.bat
+
+// # Configure (first time only, or after CMakeLists.txt changes)
+// cmake --preset windows-vs2022
+
+// # Build just the test binary
+// cmake --build build/windows-vs2022 --config Release --target sparkle_tests
+
+// # Run it
+// ./build/windows-vs2022/Sparkles/Release/sparkle_tests.exe
+
+// # Or via ctest, scoped to the Sparkles subdir (root ctest finds nothing —
+// # would need enable_testing() in the shared root CMakeLists.txt too, which
+// # I deliberately didn't touch since it's shared infra for other plugins)
+// ctest --test-dir build/windows-vs2022/Sparkles -C Release --output-on-failure
+
+
 #include "Sparkles.h"
 #include "IPlug_include_in_plug_src.h"
 

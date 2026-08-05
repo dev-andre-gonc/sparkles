@@ -19,3 +19,11 @@ iplug_add_plugin(${PROJECT_NAME}
   FORMATS
     MINIMAL_PLUGINS APP WASM
 )
+
+# Standalone test binary, deliberately kept free of iPlug2/IGraphics dependencies so it
+# builds fast and can run outside a DAW. See tests/test_framework.h.
+add_executable(sparkle_tests tests/test_main.cpp)
+target_compile_features(sparkle_tests PRIVATE cxx_std_17)
+
+enable_testing()
+add_test(NAME sparkle_tests COMMAND sparkle_tests)
