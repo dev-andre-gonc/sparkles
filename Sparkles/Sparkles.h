@@ -45,7 +45,6 @@ private:
   static constexpr int kPitchBufferSize = 2048; // must be a power of two, see kPitchBufferMask
   static constexpr int kPitchBufferMask = kPitchBufferSize - 1;
   static constexpr double kMinPitchConfidence = 0.5; // normalized autocorrelation threshold
-  static constexpr int kSamplesPerPitchStep = 64;     // throttles analysis cost independent of host block size
 
   // MIDI note 60 = C4 (middle C). Trigger range is restricted to musical notes so the pitch
   // tracker only has to check a couple dozen candidates instead of every possible frequency.
@@ -55,28 +54,37 @@ private:
   static constexpr int kDefaultMaxTriggerNote = 84; // C6
   static constexpr int kMaxNoteCandidates = kMaxTriggerableNote - kMinTriggerableNote + 1;
 
-  // Recomputes the candidate note/lag table (and resets their scores) from the current
-  // Min/Max Note params and sample rate. Called on reset and whenever those params change.
+  // Recomputes the candidate note/lag table from the current Min/Max Note params and sample
+  // rate. Called on reset and whenever those params change.
   void RebuildNoteCandidates();
 
-  // Evaluates one candidate note's autocorrelation lag against the pitch buffer's current
-  // contents and stores its score. Called a bounded number of times per ProcessBlock (see
-  // kSamplesPerPitchStep) so the analysis cost is spread evenly over time - each note's score
-  // is simply left in place between updates, ready to be read at trigger time.
-  void StepPitchDetector();
+  // Scores one candidate lag via normalized autocorrelation against the pitch buffer's
+  // current contents. Higher is a stronger periodicity match at that lag.
+  double ScoreNoteCandidate(int lag) const;
+
+  // Scores every candidate against the pitch buffer's current contents and returns the index
+  // of the best match, or -1 if none clears kMinPitchConfidence. Only called once per note
+  // onset (see mPendingNoteOn below), so an exhaustive scan is cheap enough to not need
+  // throttling.
+  int FindBestNoteCandidate() const;
 
   bool mGateNoteActive = false;
   int mSamplesUntilNoteOff = 0;
   int mActiveNoteNumber = -1; // note number sent for the currently sounding gate note
+
+  // Set when the amplitude threshold is crossed. The pitch decision is deferred rather than
+  // made immediately: the pitch buffer still holds pre-onset (e.g. silent) audio at the exact
+  // moment of crossing, so scoring it right away would misdetect. mSamplesUntilNoteDecision
+  // counts down kPitchBufferSize samples so the whole analysis window has been overwritten by
+  // the new note's audio before FindBestNoteCandidate() runs.
+  bool mPendingNoteOn = false;
+  int mSamplesUntilNoteDecision = 0;
 
   std::array<float, kPitchBufferSize> mPitchBuffer{};
   int mPitchBufferPos = 0;
 
   std::array<int, kMaxNoteCandidates> mNoteCandidateMidi{};
   std::array<int, kMaxNoteCandidates> mNoteCandidateLag{};
-  std::array<double, kMaxNoteCandidates> mNoteScores{};
   int mNumNoteCandidates = 0;
-  int mNoteIndex = 0;
-  int mPitchStepAccumulator = 0;
 #endif
 };

@@ -1,3 +1,4 @@
+//build with Sparkles\scripts\build-vst3-win.bat
 #include "Sparkles.h"
 #include "IPlug_include_in_plug_src.h"
 
@@ -74,7 +75,7 @@ Sparkles::Sparkles(const InstanceInfo& info)
 void Sparkles::OnReset()
 {
   RebuildNoteCandidates();
-  mPitchStepAccumulator = 0;
+  mPendingNoteOn = false;
 }
 
 void Sparkles::OnParamChange(int paramIdx)
@@ -99,20 +100,10 @@ void Sparkles::RebuildNoteCandidates()
     mNoteCandidateLag[mNumNoteCandidates] = lag;
     mNumNoteCandidates++;
   }
-
-  mNoteScores.fill(0.);
-  mNoteIndex = 0;
 }
 
-// Evaluates one candidate note's autocorrelation lag against the pitch buffer's current contents
-// and updates its score in place. Called at most once per kSamplesPerPitchStep samples and cycles
-// through the candidates continuously, so each note's score is refreshed gradually over time
-// rather than all being recomputed in a single block.
-void Sparkles::StepPitchDetector()
+double Sparkles::ScoreNoteCandidate(int lag) const
 {
-  if (mNumNoteCandidates == 0) return;
-
-  const int lag = mNoteCandidateLag[mNoteIndex];
   const int n = kPitchBufferSize - lag;
   double cross = 0., energy0 = 0., energy1 = 0.;
 
@@ -125,9 +116,23 @@ void Sparkles::StepPitchDetector()
   }
 
   const double denom = std::sqrt(energy0 * energy1);
-  mNoteScores[mNoteIndex] = denom > 0. ? cross / denom : 0.;
+  return denom > 0. ? cross / denom : 0.;
+}
 
-  mNoteIndex = (mNoteIndex + 1) % mNumNoteCandidates;
+int Sparkles::FindBestNoteCandidate() const
+{
+  int bestIndex = -1;
+  double bestScore = kMinPitchConfidence;
+
+  for (int i = 0; i < mNumNoteCandidates; i++) {
+    const double score = ScoreNoteCandidate(mNoteCandidateLag[i]);
+    if (score > bestScore) {
+      bestScore = score;
+      bestIndex = i;
+    }
+  }
+
+  return bestIndex;
 }
 
 void Sparkles::ProcessBlock(sample** inputs, sample** outputs, int nFrames)
@@ -152,21 +157,11 @@ void Sparkles::ProcessBlock(sample** inputs, sample** outputs, int nFrames)
         mGateNoteActive = false;
       }
     }
-    else {
-      double inputLevel = 0.;
-      for (int c = 0; c < nInChans; c++) {
-        inputLevel = std::max(inputLevel, std::abs(inputs[c][s]));
-      }
-
-      if (inputLevel > threshold) {
-        int bestIndex = -1;
-        double bestScore = kMinPitchConfidence;
-        for (int i = 0; i < mNumNoteCandidates; i++) {
-          if (mNoteScores[i] > bestScore) {
-            bestScore = mNoteScores[i];
-            bestIndex = i;
-          }
-        }
+    else if (mPendingNoteOn) {
+      // Waiting for the pitch buffer to fill with the new note's audio before deciding
+      // which pitch it is; see mSamplesUntilNoteDecision in Sparkles.h.
+      if (--mSamplesUntilNoteDecision <= 0) {
+        const int bestIndex = FindBestNoteCandidate();
 
         const int minNote = std::min(GetParam(kParamMinNote)->Int(), GetParam(kParamMaxNote)->Int());
         const int maxNote = std::max(GetParam(kParamMinNote)->Int(), GetParam(kParamMaxNote)->Int());
@@ -176,20 +171,26 @@ void Sparkles::ProcessBlock(sample** inputs, sample** outputs, int nFrames)
         IMidiMsg msg;
         msg.MakeNoteOnMsg(mActiveNoteNumber, 127, s);
         SendMidiMsg(msg);
+        mPendingNoteOn = false;
         mGateNoteActive = true;
         mSamplesUntilNoteOff = static_cast<int>(GetSampleRate());
+      }
+    }
+    else {
+      double inputLevel = 0.;
+      for (int c = 0; c < nInChans; c++) {
+        inputLevel = std::max(inputLevel, std::abs(inputs[c][s]));
+      }
+
+      if (inputLevel > threshold) {
+        mPendingNoteOn = true;
+        mSamplesUntilNoteDecision = kPitchBufferSize;
       }
     }
 
     for (int c = 0; c < nChans; c++) {
       outputs[c][s] = inputs[c][s] * gain;
     }
-  }
-
-  mPitchStepAccumulator += nFrames;
-  while (mPitchStepAccumulator >= kSamplesPerPitchStep) {
-    StepPitchDetector();
-    mPitchStepAccumulator -= kSamplesPerPitchStep;
   }
 }
 #endif
