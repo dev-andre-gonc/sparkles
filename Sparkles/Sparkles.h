@@ -5,8 +5,15 @@
 #include "core/EventScheduler.h"
 #include "core/NoteMatrix.h"
 #include "core/SparkleGenerator.h"
+#include "ISender.h"
 #include <array>
 #include <vector>
+
+#if IPLUG_EDITOR
+#include "ui/EnvelopeMeterControl.h"
+#include "ui/TriggerLightControl.h"
+#include "ui/ValueDisplayControl.h"
+#endif
 
 const int kNumPresets = 1;
 
@@ -29,7 +36,11 @@ enum ECtrlTags
   kCtrlTagThresholdSlider,
   kCtrlTagMinNoteSlider,
   kCtrlTagMaxNoteSlider,
-  kCtrlTagTitle
+  kCtrlTagTitle,
+  kCtrlTagEnvelopeMeter,   // envelope level bar + threshold line, see ui/EnvelopeMeterControl.h
+  kCtrlTagNoteDisplay,     // last detected note name, see ui/ValueDisplayControl.h
+  kCtrlTagTriggerLight,    // blinks on each threshold crossing, see ui/TriggerLightControl.h
+  kCtrlTagSprinkleCount    // number of sprinkles currently sounding, see ui/ValueDisplayControl.h
 };
 
 using namespace iplug;
@@ -48,6 +59,7 @@ public:
   void ProcessBlock(sample** inputs, sample** outputs, int nFrames) override;
   void OnReset() override;
   void OnParamChange(int paramIdx) override;
+  void OnIdle() override;
 
 private:
   static constexpr int kPitchBufferSize = 2048; // must be a power of two, see kPitchBufferMask
@@ -122,5 +134,19 @@ private:
   // individual note events by originating sprinkle.
   std::array<int64_t, kMaxSimultaneousSprinkles> mActiveSprinkleEndSamples{};
   int mNumActiveSprinkles = 0;
+
+  // Drops entries from mActiveSprinkleEndSamples that have finished sounding by nowSample. Called
+  // both when a new trigger arrives (to know whether it's under kMaxSimultaneousSprinkles) and
+  // once per block purely so mSprinkleCountSender reports a live count instead of one that only
+  // ever shrinks at the next trigger.
+  void ReapFinishedSprinkles(int64_t nowSample);
+
+  // Visual-indicator senders (see the UI: Sparkles/Visual Indicators docs comment above OnIdle's
+  // impl in Sparkles.cpp). Declared alongside the DSP state they mirror since PushData() is called
+  // from ProcessBlock; TransmitData() drains them from OnIdle on the main thread.
+  ISender<1> mEnvelopeSender;
+  ISender<1> mNoteSender;
+  ISender<1> mTriggerSender;
+  ISender<1> mSprinkleCountSender;
 #endif
 };

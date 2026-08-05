@@ -27,6 +27,9 @@ iplug_add_plugin(${PROJECT_NAME}
     params/ParamList.h
     params/ParamRanges.h
     params/ParamSnapshot.h
+    ui/EnvelopeMeterControl.h
+    ui/TriggerLightControl.h
+    ui/ValueDisplayControl.h
   RESOURCES
     resources/fonts/Roboto-Regular.ttf
   FORMATS

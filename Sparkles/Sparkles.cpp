@@ -36,6 +36,15 @@ namespace
   {
     return 440. * std::pow(2., (note - 69) / 12.);
   }
+
+  // Scientific pitch notation (MIDI 60 = C4), for the note-detected UI display.
+  void FormatNoteName(int midiNote, WDL_String& str)
+  {
+    static constexpr const char* kNoteNames[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+    const int octave = midiNote / 12 - 1;
+    const int pitchClass = ((midiNote % 12) + 12) % 12;
+    str.SetFormatted(8, "%s%d", kNoteNames[pitchClass], octave);
+  }
 }
 
 Sparkles::Sparkles(const InstanceInfo& info)
@@ -66,6 +75,16 @@ Sparkles::Sparkles(const InstanceInfo& info)
     const IRECT versionBounds = innerBounds.GetFromTRHC(300, 20);
     const IRECT titleBounds = innerBounds.GetCentredInside(200, 50);
 
+    // Visual-indicator panel: fills the open space to the right of the sliders. Left half is the
+    // envelope/threshold meter (wants to be tall); right half stacks the note, sprinkle-count and
+    // trigger-light readouts.
+    const IRECT visualArea(slidersArea.R, innerBounds.T, innerBounds.R, innerBounds.B);
+    const IRECT meterBounds = visualArea.GetGridCell(0, 1, 2).GetPadded(-10.f);
+    const IRECT infoArea = visualArea.GetGridCell(1, 1, 2).GetPadded(-10.f);
+    const IRECT noteBounds = infoArea.GetGridCell(0, 3, 1).GetPadded(-5.f);
+    const IRECT sprinkleCountBounds = infoArea.GetGridCell(1, 3, 1).GetPadded(-5.f);
+    const IRECT triggerLightBounds = infoArea.GetGridCell(2, 3, 1).GetCentredInside(40.f);
+
     if (pGraphics->NControls()) {
       pGraphics->GetBackgroundControl()->SetTargetAndDrawRECTs(bounds);
       pGraphics->GetControlWithTag(kCtrlTagSlider)->SetTargetAndDrawRECTs(sliderBounds);
@@ -74,6 +93,10 @@ Sparkles::Sparkles(const InstanceInfo& info)
       pGraphics->GetControlWithTag(kCtrlTagMaxNoteSlider)->SetTargetAndDrawRECTs(maxNoteBounds);
       pGraphics->GetControlWithTag(kCtrlTagTitle)->SetTargetAndDrawRECTs(titleBounds);
       pGraphics->GetControlWithTag(kCtrlTagVersionNumber)->SetTargetAndDrawRECTs(versionBounds);
+      pGraphics->GetControlWithTag(kCtrlTagEnvelopeMeter)->SetTargetAndDrawRECTs(meterBounds);
+      pGraphics->GetControlWithTag(kCtrlTagNoteDisplay)->SetTargetAndDrawRECTs(noteBounds);
+      pGraphics->GetControlWithTag(kCtrlTagSprinkleCount)->SetTargetAndDrawRECTs(sprinkleCountBounds);
+      pGraphics->GetControlWithTag(kCtrlTagTriggerLight)->SetTargetAndDrawRECTs(triggerLightBounds);
       return;
     }
 
@@ -89,6 +112,15 @@ Sparkles::Sparkles(const InstanceInfo& info)
     WDL_String buildInfoStr;
     GetBuildInfoStr(buildInfoStr, __DATE__, __TIME__);
     pGraphics->AttachControl(new ITextControl(versionBounds, buildInfoStr.Get(), DEFAULT_TEXT.WithAlign(EAlign::Far)), kCtrlTagVersionNumber);
+
+    pGraphics->AttachControl(new EnvelopeMeterControl(meterBounds, kParamThreshold), kCtrlTagEnvelopeMeter);
+    pGraphics->AttachControl(new ValueDisplayControl(noteBounds, "--", IText(28), [](float value, WDL_String& str) {
+      FormatNoteName(static_cast<int>(std::lround(value)), str);
+    }), kCtrlTagNoteDisplay);
+    pGraphics->AttachControl(new ValueDisplayControl(sprinkleCountBounds, "0 sprinkles", IText(18), [](float value, WDL_String& str) {
+      str.SetFormatted(32, "%d sprinkles", static_cast<int>(std::lround(value)));
+    }), kCtrlTagSprinkleCount);
+    pGraphics->AttachControl(new TriggerLightControl(triggerLightBounds), kCtrlTagTriggerLight);
   };
 #endif
 }
@@ -98,6 +130,16 @@ void Sparkles::OnReset()
 {
   RebuildNoteCandidates();
   mPendingNoteOn = false;
+
+  // Any pending note-off in the scheduler corresponds to a note we've already sent a real Note On
+  // for. mEventScheduler.Reset() below drops it silently -- without this, that note would be left
+  // stuck sounding forever, since nothing else would ever tell the host to turn it off. All-Notes-
+  // Off (CC 123) is the standard MIDI mechanism for exactly this situation (e.g. transport
+  // stop/restart, sample rate change), and covers it regardless of how many notes are pending.
+  IMidiMsg allNotesOffMsg;
+  allNotesOffMsg.MakeControlChangeMsg(IMidiMsg::kAllNotesOff, 0.0);
+  SendMidiMsg(allNotesOffMsg);
+
   mEventScheduler.Reset();
   mNumActiveSprinkles = 0;
   mBlockStartSample = 0;
@@ -210,14 +252,11 @@ void Sparkles::ProcessBlock(sample** inputs, sample** outputs, int nFrames)
 
         const int64_t triggerSample = blockStart + s;
 
+        mNoteSender.PushData(ISenderData<1>(kCtrlTagNoteDisplay, std::array<float, 1>{ static_cast<float>(triggerNote) }));
+
         // Reap sprinkles that have finished sounding by now, so mNumActiveSprinkles reflects only
         // ones still actually in flight.
-        int writeIdx = 0;
-        for (int i = 0; i < mNumActiveSprinkles; i++) {
-          if (mActiveSprinkleEndSamples[i] > triggerSample)
-            mActiveSprinkleEndSamples[writeIdx++] = mActiveSprinkleEndSamples[i];
-        }
-        mNumActiveSprinkles = writeIdx;
+        ReapFinishedSprinkles(triggerSample);
 
         // At the cap -- drop this trigger's sprinkle entirely rather than truncating any one
         // sprinkle's own rays/sparkles.
@@ -253,6 +292,7 @@ void Sparkles::ProcessBlock(sample** inputs, sample** outputs, int nFrames)
       if (crossed) {
         mPendingNoteOn = true;
         mSamplesUntilNoteDecision = kPitchBufferSize;
+        mTriggerSender.PushData(ISenderData<1>(kCtrlTagTriggerLight, std::array<float, 1>{ 1.f }));
       }
     }
 
@@ -284,5 +324,30 @@ void Sparkles::ProcessBlock(sample** inputs, sample** outputs, int nFrames)
   } while (nSchedEvents == schedEvents.size());
 
   mBlockStartSample += nFrames;
+
+  // Reap once more here (rather than only at the next trigger) so mSprinkleCountSender reports a
+  // live count instead of one that lags until the next trigger happens to reap it.
+  ReapFinishedSprinkles(mBlockStartSample);
+
+  mEnvelopeSender.PushData(ISenderData<1>(kCtrlTagEnvelopeMeter, std::array<float, 1>{ static_cast<float>(mEnvelope) }));
+  mSprinkleCountSender.PushData(ISenderData<1>(kCtrlTagSprinkleCount, std::array<float, 1>{ static_cast<float>(mNumActiveSprinkles) }));
+}
+
+void Sparkles::ReapFinishedSprinkles(int64_t nowSample)
+{
+  int writeIdx = 0;
+  for (int i = 0; i < mNumActiveSprinkles; i++) {
+    if (mActiveSprinkleEndSamples[i] > nowSample)
+      mActiveSprinkleEndSamples[writeIdx++] = mActiveSprinkleEndSamples[i];
+  }
+  mNumActiveSprinkles = writeIdx;
+}
+
+void Sparkles::OnIdle()
+{
+  mEnvelopeSender.TransmitData(*this);
+  mNoteSender.TransmitData(*this);
+  mTriggerSender.TransmitData(*this);
+  mSprinkleCountSender.TransmitData(*this);
 }
 #endif
