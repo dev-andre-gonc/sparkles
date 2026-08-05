@@ -57,6 +57,15 @@ If the trigger note's own column is off, or has zero eligible rows, no sprinkle 
 
 Implementation note (from the project's `CLAUDE.md`): start with `IVButtonControl`/similar IVControls for this matrix; a custom PNG-based control set is a later pass once the logic is verified.
 
+### 5.1 Key + scale quick-fill
+
+Two additional controls act as a shortcut for filling in the matrix from music theory instead of hand-toggling 144 cells:
+
+- `key_root` — root pitch class, A – G# (12 options).
+- `key_scale` — scale relative to `key_root`. Selectable scales: the 7 modes (Ionian/Major, Dorian, Phrygian, Lydian, Mixolydian, Aeolian/Minor, Locrian), plus Harmonic Minor, Melodic Minor, Major Pentatonic, Minor Pentatonic, Blues, and Chromatic (all 12 pitch classes).
+
+Changing either control **regenerates the whole matrix from scratch**: it computes the scale's pitch-class set relative to `key_root`, sets the column and row master toggles ON for exactly those pitch classes (OFF for the rest), and sets every cell `(column, row)` ON where both `column` and `row` are in that set (OFF otherwise). This is a one-time overwrite, not a standing constraint — after generating, individual cells/columns/rows can still be hand-edited directly in the matrix (§5), and those manual edits stick until `key_root`/`key_scale` is changed again, which regenerates (and so discards) them.
+
 ## 6. wrap_mode
 
 Governs what happens when the next note an ascending/descending ray walk would land on falls outside `[range_min, range_max]`'s eligible-note list:
@@ -171,7 +180,13 @@ pan(ray_n, sparkle_n) = clamp( sign(ray_n) * width(ray_n, sparkle_n) * Wave(pann
 - `square`: `-1` over `p ∈ [0, 0.5)`, `+1` over `p ∈ [0.5, 1)`.
 - `saw`: ramps linearly `-1 → 1` over `p ∈ [0, 1)`, then jumps back to `-1`.
 
-## 8. Assumptions and interpretations applied in this spec
+## 8. Presets
+
+Presets save and recall every parameter in this spec **except** the note eligibility matrix (§5) and its `key_root`/`key_scale` quick-fill controls (§5.1). Loading a different preset changes the sprinkle/ray/sparkle design — structure, timing, pitch-step, loudness, duration, panning, detection params — but leaves whatever key/scale/matrix the performer currently has dialed in untouched.
+
+This is deliberate: the matrix represents the key the performer is currently playing in, which is independent of which sprinkle "sound" is loaded — switching presets mid-performance shouldn't yank the plugin out of the current key. The matrix and `key_root`/`key_scale` are still part of the plugin's normal saved state (DAW project save/reload, copying the plugin instance) — "excluded from presets" only means the preset browser/bank doesn't touch them, not that they're ephemeral.
+
+## 9. Assumptions and interpretations applied in this spec
 
 Resolved by you during review (recommended options, all accepted):
 
@@ -180,6 +195,8 @@ Resolved by you during review (recommended options, all accepted):
 3. **`wrap_mode: mirror` at a second boundary**: keeps bouncing back and forth for as many sparkles as the ray needs, rather than reflecting once.
 4. **`reactiveness`**: a single combined knob, not separate attack/release parameters.
 5. **`ray_rotation`** (§7.6, added after you supplied the `width * Wave(phase)` pan formula): flips the sign of the ray's *computed output pan position*, not the phase fed into the waveform.
+6. **Key/scale quick-fill vs. manual matrix** (§5.1): the two dropdowns generate/overwrite the matrix, but the underlying per-cell/column/row toggles from §5 still exist for hand-tweaking afterward, rather than the dropdowns being the only way to set the matrix.
+7. **Scale list** (§5.1): used the standard set — 7 modes, Harmonic Minor, Melodic Minor, Major/Minor Pentatonic, Blues, Chromatic — rather than a custom list.
 
 `saw` is back in the `panning` list (§7.6) per your edit — the original draft's "saw wouldn't make sense" reasoning no longer applies now that panning is a static per-sparkle `width * Wave(phase)` lookup rather than a continuous sweep.
 
