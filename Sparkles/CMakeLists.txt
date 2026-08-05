@@ -21,6 +21,12 @@ iplug_add_plugin(${PROJECT_NAME}
     Sparkles.cpp
     Sparkles.h
     resources/resource.h
+    core/DetectionParams.h
+    core/NoteMatrix.h
+    core/SparkleGenerator.h
+    params/ParamList.h
+    params/ParamRanges.h
+    params/ParamSnapshot.h
   RESOURCES
     resources/fonts/Roboto-Regular.ttf
   FORMATS
@@ -32,7 +38,11 @@ iplug_add_plugin(${PROJECT_NAME}
 add_executable(sparkle_tests
   tests/test_main.cpp
   tests/test_note_matrix.cpp
+  tests/test_sparkle_generator.cpp
+  tests/test_event_scheduler.cpp
   core/NoteMatrix.h
+  core/SparkleGenerator.h
+  core/EventScheduler.h
 )
 target_compile_features(sparkle_tests PRIVATE cxx_std_17)
 

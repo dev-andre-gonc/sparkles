@@ -45,6 +45,25 @@ namespace sparkle_core
     Stop
   };
 
+  // Scale choices for the §5.1 key/scale quick-fill, which regenerates the whole matrix from
+  // music theory. Order matches params/ParamList.h's kParamKeyScale option strings exactly.
+  enum class Scale
+  {
+    Ionian, // Major
+    Dorian,
+    Phrygian,
+    Lydian,
+    Mixolydian,
+    Aeolian, // Minor
+    Locrian,
+    HarmonicMinor,
+    MelodicMinor,
+    MajorPentatonic,
+    MinorPentatonic,
+    Blues,
+    Chromatic
+  };
+
   // 12x12 pitch-class eligibility grid (§5). Columns = trigger pitch class, rows = sparkle pitch
   // class. Cell(column, row) ON means a sparkle may land on `row`'s pitch class when the trigger
   // note's pitch class is `column`. The column/row toggles gate an entire column/row regardless of

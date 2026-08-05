@@ -1,0 +1,293 @@
+#pragma once
+
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <vector>
+
+#include "NoteMatrix.h"
+
+// Sprinkle -> ray -> sparkle event generation, see docs/SPEC.md §4, §7. Deliberately free of
+// iPlug2/IGraphics dependencies (like core/NoteMatrix.h) so it can be included by both the plugin
+// and the standalone test binary.
+namespace sparkle_core
+{
+  // Unit a given time-family parameter's raw `value` is expressed in (§4: pre_delay, duration,
+  // ray_delay, delay each independently choose beats vs. absolute time).
+  enum class TimeUnit
+  {
+    Beats,
+    Milliseconds,
+    Seconds
+  };
+
+  struct TimeParam
+  {
+    double value = 0.0;
+    TimeUnit unit = TimeUnit::Beats;
+  };
+
+  enum class PanMode
+  {
+    Mono,
+    Random,
+    Sine,
+    Triangle,
+    Square,
+    Saw
+  };
+
+  enum class RayRotation
+  {
+    L,
+    R
+  };
+
+  enum class RayRotationMode
+  {
+    Keep,
+    Invert
+  };
+
+  // A single emitted MIDI note (§1). Times/durations are already resolved to samples relative to
+  // the trigger (i.e. excluding the trigger's own transport position).
+  struct SparkleEvent
+  {
+    int64_t timeOffsetSamples = 0;
+    int note = 0;
+    int velocity = 0;
+    int64_t durationSamples = 0;
+    double pan = 0.0; // -1 = 100% L, +1 = 100% R (§7.6)
+  };
+
+  // Uniform-[0,1) random source, used only by PanMode::Random (§7.6). Injected rather than
+  // owned so callers/tests can make generation deterministic.
+  using RandomFn = double (*)();
+
+  inline double DefaultRandom()
+  {
+    return static_cast<double>(std::rand()) / (static_cast<double>(RAND_MAX) + 1.0);
+  }
+
+  // Mirrors docs/SPEC.md §7 param names. `_rm` = per-ray exponential multiplier, `_sm` = per-
+  // sparkle-within-ray exponential multiplier, applied as documented on each formula.
+  struct SparkleParams
+  {
+    // Structure (§7.1)
+    int nRays = 1;
+    int nSparklesPerRay = 1;
+    double nSparklesPerRayRm = 1.0;
+    int rangeMin = 0;
+    int rangeMax = 127;
+    WrapMode wrapMode = WrapMode::Stop;
+
+    // Trigger-to-sprinkle offset (§7.2) -- no _rm/_sm, applied once ahead of the ray/sparkle chains.
+    TimeParam preDelay;
+    int preInterval = 0;
+
+    // Base per-sparkle properties, evaluated directly (§7.3)
+    double loudness = 127.0;
+    double loudnessRm = 1.0;
+    double loudnessSm = 1.0;
+
+    TimeParam duration{ 1.0, TimeUnit::Beats };
+    double durationRm = 1.0;
+    double durationSm = 1.0;
+
+    // Timing chain, cumulative (§7.4)
+    TimeParam rayDelay;
+    double rayDelayRm = 1.0;
+
+    TimeParam delay;
+    double delayRm = 1.0;
+    double delaySm = 1.0;
+
+    // Pitch chain, cumulative (§7.5)
+    int rayInterval = 0;
+    double rayIntervalRm = 1.0;
+
+    int interval = 1;
+    double intervalRm = 1.0;
+    double intervalSm = 1.0;
+
+    // Panning (§7.6)
+    PanMode panning = PanMode::Mono;
+    double width = 0.0;
+    double widthRm = 1.0;
+    double widthSm = 1.0;
+
+    double phase = 0.0;
+    double phaseRm = 1.0;
+    double phaseSm = 1.0;
+
+    RayRotation rayRotation = RayRotation::L;
+    RayRotationMode rayRotationRm = RayRotationMode::Keep;
+  };
+
+  class SparkleGenerator
+  {
+  public:
+    // Hard ceiling on events a single trigger can produce, regardless of what the _rm/_sm
+    // multipliers compute to -- e.g. n_sparkles_per_ray_rm=3.0 with a dozen rays wants hundreds
+    // of thousands of sparkles; this is the backstop that keeps Generate()'s one allocation
+    // bounded no matter what a user (or a preset) dials in.
+    static constexpr size_t kMaxEventsPerTrigger = 1024;
+
+    // Number of sparkles ray `rayN` would emit before any wrap_mode=stop cutoff (§7.1's
+    // n_sparkles_per_ray formula), floored at 0 and capped at kMaxEventsPerTrigger -- capping
+    // here (rather than only in the MaxEventCount sum) also keeps the double->int cast below safe
+    // from overflow/UB when nSparklesPerRayRm^rayN blows up.
+    static int NumSparklesForRay(const SparkleParams& params, int rayN)
+    {
+      const double raw = params.nSparklesPerRay * std::pow(params.nSparklesPerRayRm, rayN);
+      const double clamped = std::clamp(raw, 0.0, static_cast<double>(kMaxEventsPerTrigger));
+      return static_cast<int>(std::lround(clamped));
+    }
+
+    // Upper bound on events a sprinkle could produce (sum of NumSparklesForRay over all rays),
+    // truncated at kMaxEventsPerTrigger -- size the buffer passed to Generate() to at least this
+    // so it never reallocates.
+    static size_t MaxEventCount(const SparkleParams& params)
+    {
+      size_t total = 0;
+      for (int rayN = 0; rayN < params.nRays; ++rayN)
+      {
+        total += static_cast<size_t>(NumSparklesForRay(params, rayN));
+        if (total >= kMaxEventsPerTrigger)
+          return kMaxEventsPerTrigger;
+      }
+      return total;
+    }
+
+    // Generates every sparkle event for one sprinkle triggered by `triggerNote`, in ray-major /
+    // sparkle-minor order. `outEvents` is cleared and reserve()'d once to MaxEventCount(params)
+    // (never more than kMaxEventsPerTrigger) -- the only allocation this function performs --
+    // then filled via push_back, which never reallocates since capacity already covers the upper
+    // bound. If the requested rays/sparkles would exceed kMaxEventsPerTrigger, generation stops
+    // early (mid-ray if necessary) rather than growing the buffer.
+    static void Generate(const NoteMatrix& matrix, const SparkleParams& params, int triggerNote,
+                          double bpm, double sampleRate, std::vector<SparkleEvent>& outEvents,
+                          RandomFn random = DefaultRandom)
+    {
+      outEvents.clear();
+      outEvents.reserve(MaxEventCount(params));
+
+      const double preDelaySamples = ToSamples(params.preDelay, bpm, sampleRate);
+
+      double rayDelayAccumSamples = 0.0; // Sigma (ray_delay * ray_delay_rm^i) for i = 0..rayN
+      double rayIntervalAccum = 0.0;     // Sigma (ray_interval * ray_interval_rm^i) for i = 0..rayN
+
+      double raySign = (params.rayRotation == RayRotation::L) ? 1.0 : -1.0;
+
+      for (int rayN = 0; rayN < params.nRays; ++rayN)
+      {
+        if (outEvents.size() >= kMaxEventsPerTrigger)
+          break; // hard cap reached -- truncate the remaining rays entirely
+
+        rayDelayAccumSamples += ToSamples(
+          params.rayDelay.value * std::pow(params.rayDelayRm, rayN), params.rayDelay.unit, bpm, sampleRate);
+        rayIntervalAccum += params.rayInterval * std::pow(params.rayIntervalRm, rayN);
+
+        const double rayStartSamples = preDelaySamples + rayDelayAccumSamples;
+        const double rayIntervalOffset = params.preInterval + rayIntervalAccum;
+
+        const int numSparkles = NumSparklesForRay(params, rayN);
+        const double signForThisRay = raySign;
+        if (params.rayRotationRm == RayRotationMode::Invert)
+          raySign = -raySign;
+
+        double withinRaySamplesAccum = 0.0; // used for sparkleN == 0, then advanced below
+        double withinRayIntervalAccum = 0.0;
+
+        for (int sparkleN = 0; sparkleN < numSparkles; ++sparkleN)
+        {
+          if (outEvents.size() >= kMaxEventsPerTrigger)
+            break; // hard cap reached mid-ray -- truncate gracefully rather than grow the buffer
+
+          const double rawSteps = rayIntervalOffset + withinRayIntervalAccum;
+          int steps = static_cast<int>(std::lround(rawSteps));
+          if (steps == 0)
+            steps = (rawSteps < 0.0) ? -1 : 1; // never land back on the trigger note (§7.5)
+
+          const auto note = matrix.Walk(triggerNote, steps, params.rangeMin, params.rangeMax, params.wrapMode);
+          if (!note.has_value())
+            break; // wrap_mode=stop past a boundary, or the trigger's column has no eligible notes at all
+
+          SparkleEvent event;
+          event.timeOffsetSamples = static_cast<int64_t>(std::llround(rayStartSamples + withinRaySamplesAccum));
+          event.note = *note;
+
+          const double loudness = params.loudness * std::pow(params.loudnessRm, rayN) * std::pow(params.loudnessSm, sparkleN);
+          event.velocity = std::clamp(static_cast<int>(std::lround(loudness)), 1, 127);
+
+          const double durationMagnitude =
+            params.duration.value * std::pow(params.durationRm, rayN) * std::pow(params.durationSm, sparkleN);
+          const double durationSamples = ToSamples(durationMagnitude, params.duration.unit, bpm, sampleRate);
+          event.durationSamples = std::max<int64_t>(0, static_cast<int64_t>(std::llround(durationSamples)));
+
+          const double width = params.width * std::pow(params.widthRm, rayN) * std::pow(params.widthSm, sparkleN);
+          const double phase = params.phase * std::pow(params.phaseRm, rayN) * std::pow(params.phaseSm, sparkleN);
+          event.pan = Pan(params.panning, signForThisRay, width, phase, random);
+
+          outEvents.push_back(event);
+
+          const int k = sparkleN + 1;
+          const double delayTerm = params.delay.value * std::pow(params.delayRm, rayN) * std::pow(params.delaySm, k - 1);
+          withinRaySamplesAccum += ToSamples(delayTerm, params.delay.unit, bpm, sampleRate);
+          withinRayIntervalAccum += params.interval * std::pow(params.intervalRm, rayN) * std::pow(params.intervalSm, k - 1);
+        }
+      }
+    }
+
+  private:
+    static double ToSamples(const TimeParam& param, double bpm, double sampleRate)
+    {
+      return ToSamples(param.value, param.unit, bpm, sampleRate);
+    }
+
+    static double ToSamples(double magnitude, TimeUnit unit, double bpm, double sampleRate)
+    {
+      switch (unit)
+      {
+        case TimeUnit::Milliseconds: return magnitude * 0.001 * sampleRate;
+        case TimeUnit::Seconds: return magnitude * sampleRate;
+        case TimeUnit::Beats:
+        default: return magnitude * (60.0 / bpm) * sampleRate;
+      }
+    }
+
+    // Periodic (period 1) waveform lookup for the pan LFO shapes (§7.6).
+    static double Wave(PanMode mode, double p)
+    {
+      double frac = p - std::floor(p);
+
+      switch (mode)
+      {
+        case PanMode::Triangle:
+          return (frac <= 0.5) ? (-1.0 + 4.0 * frac) : (1.0 - 4.0 * (frac - 0.5));
+        case PanMode::Square: return (frac < 0.5) ? -1.0 : 1.0;
+        case PanMode::Saw: return -1.0 + 2.0 * frac;
+        case PanMode::Sine:
+        default:
+        {
+          constexpr double kTwoPi = 6.283185307179586476925286766559;
+          return std::sin(kTwoPi * frac);
+        }
+      }
+    }
+
+    static double Pan(PanMode mode, double signForThisRay, double width, double phase, RandomFn random)
+    {
+      switch (mode)
+      {
+        case PanMode::Mono: return 0.0;
+        case PanMode::Random: return std::clamp(width * (random() * 2.0 - 1.0), -1.0, 1.0);
+        case PanMode::Sine:
+        case PanMode::Triangle:
+        case PanMode::Square:
+        case PanMode::Saw:
+        default: return std::clamp(signForThisRay * width * Wave(mode, phase), -1.0, 1.0);
+      }
+    }
+  };
+}
