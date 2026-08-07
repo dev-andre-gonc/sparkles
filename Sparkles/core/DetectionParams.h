@@ -18,6 +18,7 @@ namespace sparkle_core
     TriggerType triggerType = TriggerType::Up;
     double threshold = 0.5;    // normalized 0-1; envelope level that must be crossed (§2)
     double reactiveness = 0.5; // normalized 0-1; envelope follower responsiveness (§2)
+    double confidence = 0.6;   // normalized 0-1; min pitch-tracker score to accept a trigger (§2)
     int detectNoteMin = 48;    // MIDI note, inclusive (§2, §3)
     int detectNoteMax = 84;    // MIDI note, inclusive (§2, §3)
   };

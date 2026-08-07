@@ -23,11 +23,14 @@ iplug_add_plugin(${PROJECT_NAME}
     resources/resource.h
     core/DetectionParams.h
     core/NoteMatrix.h
+    core/PitchTracker.h
     core/SparkleGenerator.h
     params/ParamList.h
     params/ParamRanges.h
     params/ParamSnapshot.h
     ui/EnvelopeMeterControl.h
+    ui/NoteBarsControl.h
+    ui/NoteMatrixControl.h
     ui/TriggerLightControl.h
     ui/ValueDisplayControl.h
   RESOURCES
@@ -43,7 +46,9 @@ add_executable(sparkle_tests
   tests/test_note_matrix.cpp
   tests/test_sparkle_generator.cpp
   tests/test_event_scheduler.cpp
+  tests/test_pitch_tracker.cpp
   core/NoteMatrix.h
+  core/PitchTracker.h
   core/SparkleGenerator.h
   core/EventScheduler.h
 )

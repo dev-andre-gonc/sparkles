@@ -26,7 +26,19 @@ Indices used throughout:
 | `trigger_type` | `up` / `down` / `both` — fire when the envelope crosses `threshold` upward, downward, or either direction. `both` treats each direction as an independent trigger event. |
 | `threshold` | Envelope level that must be crossed (in the direction(s) selected by `trigger_type`) to fire a sprinkle. *(Already implemented as `kParamThreshold` in the prototype.)* |
 | `reactiveness` | Single knob controlling the envelope follower's responsiveness (internally shapes attack/release smoothing). Higher = tracks the input level faster; lower = smoother/slower tracking, fewer spurious triggers. *(The current prototype compares the raw instantaneous sample to `threshold` with no smoothing — `reactiveness` replaces that with a proper envelope follower.)* |
+| `confidence` | Minimum pitch-detection confidence (normalized autocorrelation score, 0–1) a trigger needs before it fires. A trigger whose note can't be identified at least this confidently is **dropped silently** — never fired with a guessed/fallback note. See the tracker notes below for how each crossing direction resolves its note. *(Implemented as `kParamConfidence`, consumed by `core/PitchTracker.h`.)* |
 | `detect_note_min`, `detect_note_max` | MIDI note range the pitch detector searches for the trigger note. *(Already implemented as `kParamMinNote`/`kParamMaxNote` in the prototype.)* **This range is distinct from `range_min`/`range_max` below**, which bound the generated sparkle notes, not the detected input pitch — see the naming note in §3. |
+
+### 2.1 Continuous pitch tracking and trigger-note resolution
+
+Pitch detection runs **continuously** (analysis every few hundred samples), independent of triggering — not once per trigger. The tracker maintains a hysteresis-debounced *stable note*, plus a *held note*: the last stable note whose score cleared `confidence`, remembered for ~250 ms after confidence collapses. The UI's note display always shows the live stable note and its confidence (e.g. `A3 87%`, or `--` when nothing is being tracked), trigger or no trigger.
+
+Each crossing direction resolves its trigger note differently, because the audio available differs:
+
+- **Up-crossing** (note starting — the analysis window is mid-transient): the trigger arms and fires as soon as a tracker update clears `confidence`, up to a ~50 ms ceiling; if confidence is never reached, the trigger is dropped. A note already confidently sounding when the envelope crosses (e.g. a swell) fires immediately.
+- **Down-crossing** (note fading or gone): resolves immediately from the held note — what was confidently playing just before the crossing. Nothing confident within the hold window ⇒ dropped.
+
+Implemented in `core/PitchTracker.h` (framework-free, covered by `sparkle_tests`).
 
 ## 3. Note range vs. detection range — naming clarification
 
@@ -48,23 +60,26 @@ A 12×12 grid of on/off buttons defines which sparkle pitch classes are reachabl
 - Columns = trigger pitch class, **X axis, A → G#** (12 chromatic pitch classes, in that fixed order: A, A#, B, C, C#, D, D#, E, F, F#, G, G#).
 - Rows = sparkle pitch class, **Y axis, A → G#**, same order.
 - Cell `(column, row)` ON means: when the trigger note's pitch class is `column`, sparkles are allowed to land on pitch class `row`.
-- A per-column toggle turns off/on that whole column at once: if off, that trigger pitch class is ignored entirely and no sprinkle is generated for it, regardless of individual cells.
-- A per-row toggle turns off/on that sparkle pitch class **for every trigger column simultaneously**: if off, that pitch class can never be produced as a sparkle no matter which cells are ON.
+- A per-column toggle button sits above the grid, one per trigger pitch class: clicking it inspects that column's 12 individual cells — if any are ON, it sets all 12 OFF; otherwise it sets all 12 ON (`NoteMatrix::ToggleColumn`). This is a direct, destructive overwrite of the cells themselves, not a separate gate — clicking it off then on again does not restore whatever pattern was there before.
+- A per-row toggle button sits to the left of the grid, one per sparkle pitch class, with the same click behavior applied down that row across every trigger column (`NoteMatrix::ToggleRow`).
+- `NoteMatrix` also exposes an independent `SetColumnEnabled`/`SetRowEnabled` gate that ANDs with the cells without touching them (non-destructive) — kept for testability, but nothing in the UI currently drives it; the toggle buttons above use the destructive cell-overwrite instead.
 
-**Resolving eligible notes:** given a trigger note, take its pitch class (`trigger_note mod 12`) to select the column. The eligible sparkle pitch classes are the rows where the cell is ON *and* the row toggle is ON. The eligible sparkle **notes** are then every MIDI note in `[range_min, range_max]` whose pitch class is eligible, sorted ascending — this sorted list is what `interval`/`ray_interval` step counts walk across (see §7), and what `wrap_mode` (§6) operates on. Interval parameters count **positions in this eligible-note list**, not chromatic semitones — e.g. an interval of 2 skips over one eligible note, however many semitones that spans.
+**Resolving eligible notes:** given a trigger note, take its pitch class (`trigger_note mod 12`) to select the column. The eligible sparkle pitch classes are the rows where the cell is ON *and* the row's `SetRowEnabled` gate is ON (true by default, see above). The eligible sparkle **notes** are then every MIDI note in `[range_min, range_max]` whose pitch class is eligible, sorted ascending — this sorted list is what `interval`/`ray_interval` step counts walk across (see §7), and what `wrap_mode` (§6) operates on. Interval parameters count **positions in this eligible-note list**, not chromatic semitones — e.g. an interval of 2 skips over one eligible note, however many semitones that spans.
 
-If the trigger note's own column is off, or has zero eligible rows, no sprinkle fires for that trigger.
+If the trigger note's own column has zero eligible rows (every cell off, whether via the toggle button or hand-editing), no sprinkle fires for that trigger.
 
-Implementation note (from the project's `CLAUDE.md`): start with `IVButtonControl`/similar IVControls for this matrix; a custom PNG-based control set is a later pass once the logic is verified.
+Implemented as a single composite `IControl` (`ui/NoteMatrixControl.h`) rather than 144+24 separate `IVButtonControl`s, since every cell reads/writes the same shared `sparkle_core::NoteMatrix` directly (it isn't `IParam`-backed) and one control keeps resize/tag bookkeeping simple.
 
 ### 5.1 Key + scale quick-fill
 
 Two additional controls act as a shortcut for filling in the matrix from music theory instead of hand-toggling 144 cells:
 
-- `key_root` — root pitch class, A – G# (12 options).
+- `key_root` — root pitch class, A – G# (12 options), plus a 13th option, **Trigger Note**: instead of one fixed root shared by every column, each column uses its own trigger pitch class as that column's root (see below).
 - `key_scale` — scale relative to `key_root`. Selectable scales: the 7 modes (Ionian/Major, Dorian, Phrygian, Lydian, Mixolydian, Aeolian/Minor, Locrian), plus Harmonic Minor, Melodic Minor, Major Pentatonic, Minor Pentatonic, Blues, and Chromatic (all 12 pitch classes).
 
-Changing either control **regenerates the whole matrix from scratch**: it computes the scale's pitch-class set relative to `key_root`, sets the column and row master toggles ON for exactly those pitch classes (OFF for the rest), and sets every cell `(column, row)` ON where both `column` and `row` are in that set (OFF otherwise). This is a one-time overwrite, not a standing constraint — after generating, individual cells/columns/rows can still be hand-edited directly in the matrix (§5), and those manual edits stick until `key_root`/`key_scale` is changed again, which regenerates (and so discards) them.
+Changing either control **regenerates the whole matrix from scratch**: with a fixed `key_root`, it computes the scale's pitch-class set relative to `key_root` and sets every cell `(column, row)` ON where both `column` and `row` are in that set (OFF otherwise). With `key_root` set to **Trigger Note**, there's no single shared root — each column instead uses its own trigger pitch class as the root, so cell `(column, row)` is ON when `row`'s offset from `column` is one of `key_scale`'s degrees. This is a one-time overwrite, not a standing constraint — after generating, individual cells/columns/rows can still be hand-edited directly in the matrix (§5), and those manual edits stick until `key_root`/`key_scale` is changed again, which regenerates (and so discards) them.
+
+This deliberately drives only the cells, never the independent `SetColumnEnabled`/`SetRowEnabled` gate mentioned in §5: that gate ANDs with the cells without touching them, and short-circuits before the cells are ever consulted. If the quick-fill used it to blank out-of-scale pitch classes, a manual cell edit afterward (e.g. re-enabling one black-key pair after picking C major) would silently have no effect, since the gate would keep killing that column/row regardless of what the cell said. Driving cells only keeps eligibility exactly "whatever the cells currently say" everywhere, matching how the column/row toggle buttons and individual cell clicks already work.
 
 ## 6. wrap_mode
 
@@ -151,7 +166,7 @@ WithinRayInterval(ray_n, sparkle_n) = Σ (interval * interval_rm^ray_n * interva
 RawSteps(ray_n, sparkle_n) = RayIntervalOffset(ray_n) + WithinRayInterval(ray_n, sparkle_n)
 ```
 
-Round `RawSteps` to the nearest integer; if it rounds to exactly 0, bump it away from zero to the nearest nonzero integer (±1) instead — a sparkle should never land back on the trigger note itself. The resulting signed integer is the number of positions to walk (up if positive, down if negative) from the trigger note's position in the eligible-note list (§5), applying `wrap_mode` at the list boundaries, to land on the sparkle's actual MIDI note.
+Round `RawSteps` to the nearest integer. The resulting signed integer is the number of positions to walk (up if positive, down if negative, staying put if zero) from the trigger note's position in the eligible-note list (§5), applying `wrap_mode` at the list boundaries, to land on the sparkle's actual MIDI note — a zero offset lands back on the trigger note itself.
 
 ### 7.6 Panning
 

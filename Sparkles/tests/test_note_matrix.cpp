@@ -125,3 +125,157 @@ TEST(NoteMatrix_Stop_DiesPastBoundary)
   // Stepping below the low boundary (already at index 0) also dies.
   CHECK(matrix.Walk(kStartNote, -1, kRangeMin, kRangeMax, WrapMode::Stop) == std::nullopt);
 }
+
+TEST(NoteMatrix_ToggleColumn_AnyOnTurnsAllOff)
+{
+  // Default matrix: every cell ON, so any column has at least one ON cell -- toggling must clear
+  // the whole column, not just the one cell that happened to trigger the "any on" check.
+  NoteMatrix matrix;
+  matrix.SetCell(0, 5, false); // still leaves 11 other cells ON in column 0
+
+  matrix.ToggleColumn(0);
+  for (int row = 0; row < kNumPitchClasses; ++row)
+    CHECK(matrix.GetCell(0, row) == false);
+
+  // Other columns untouched.
+  CHECK(matrix.GetCell(1, 0) == true);
+}
+
+TEST(NoteMatrix_ToggleColumn_AllOffTurnsAllOn)
+{
+  NoteMatrix matrix;
+  for (int row = 0; row < kNumPitchClasses; ++row)
+    matrix.SetCell(3, row, false);
+
+  matrix.ToggleColumn(3);
+  for (int row = 0; row < kNumPitchClasses; ++row)
+    CHECK(matrix.GetCell(3, row) == true);
+}
+
+TEST(NoteMatrix_ToggleColumn_IsDestructive)
+{
+  // Toggling off then back on does NOT restore the original mixed pattern -- it resets to all ON,
+  // by explicit design (unlike SetColumnEnabled, which preserves cells underneath).
+  NoteMatrix matrix;
+  matrix.SetCell(0, 0, false);
+  matrix.SetCell(0, 1, false);
+
+  matrix.ToggleColumn(0); // any on (rows 2-11) -> all off
+  for (int row = 0; row < kNumPitchClasses; ++row)
+    CHECK(matrix.GetCell(0, row) == false);
+
+  matrix.ToggleColumn(0); // all off -> all on
+  for (int row = 0; row < kNumPitchClasses; ++row)
+    CHECK(matrix.GetCell(0, row) == true); // NOT restored to the original false/false/true.../true
+}
+
+TEST(NoteMatrix_ToggleRow_MirrorsToggleColumn)
+{
+  NoteMatrix matrix;
+  for (int col = 0; col < kNumPitchClasses; ++col)
+    matrix.SetCell(col, 7, false);
+
+  matrix.ToggleRow(7);
+  for (int col = 0; col < kNumPitchClasses; ++col)
+    CHECK(matrix.GetCell(col, 7) == true);
+
+  matrix.ToggleRow(7);
+  for (int col = 0; col < kNumPitchClasses; ++col)
+    CHECK(matrix.GetCell(col, 7) == false);
+
+  // Other rows untouched.
+  CHECK(matrix.GetCell(0, 0) == true);
+}
+
+TEST(NoteMatrix_ApplyKeyScale_CMajorRestrictsToWhiteKeys)
+{
+  // C major (Ionian, root C): scale pitch classes are C D E F G A B, i.e. matrix indices
+  // {kC, kD, kE, kF, kG, kA, kB} = {3, 5, 7, 8, 10, 0, 2}.
+  NoteMatrix matrix;
+  ApplyKeyScale(matrix, kC, Scale::Ionian);
+
+  const bool inScale[kNumPitchClasses] = {
+    /*A*/ true, /*A#*/ false, /*B*/ true, /*C*/ true, /*C#*/ false, /*D*/ true,
+    /*D#*/ false, /*E*/ true, /*F*/ true, /*F#*/ false, /*G*/ true, /*G#*/ false
+  };
+
+  for (int col = 0; col < kNumPitchClasses; ++col)
+    for (int row = 0; row < kNumPitchClasses; ++row)
+      CHECK(matrix.GetCell(col, row) == (inScale[col] && inScale[row]));
+}
+
+TEST(NoteMatrix_ApplyKeyScale_ChromaticEnablesEveryCell)
+{
+  NoteMatrix matrix;
+  matrix.SetCell(0, 0, false);
+
+  ApplyKeyScale(matrix, kA, Scale::Chromatic);
+
+  for (int col = 0; col < kNumPitchClasses; ++col)
+    for (int row = 0; row < kNumPitchClasses; ++row)
+      CHECK(matrix.GetCell(col, row) == true);
+}
+
+TEST(NoteMatrix_ApplyKeyScale_DoesNotTouchTheEnabledGate)
+{
+  // Regression test for the exact bug this behavior was built to avoid: ApplyKeyScale must drive
+  // only cells, never the separate SetColumnEnabled/SetRowEnabled gate -- otherwise a manual cell
+  // edit on an out-of-scale pitch class after applying a scale would have no effect, since
+  // EligibleNotes early-returns on a disabled column before ever consulting the cells.
+  NoteMatrix matrix;
+  ApplyKeyScale(matrix, kC, Scale::Ionian); // A# is out of scale
+
+  CHECK(matrix.IsColumnEnabled(kASharp) == true);
+  CHECK(matrix.IsRowEnabled(kASharp) == true);
+
+  // Hand-editing an out-of-scale cell back ON must actually make that note eligible.
+  matrix.SetCell(kASharp, kASharp, true);
+  CHECK(matrix.EligibleNotes(70 /* A#4 */, 60, 71) == std::vector<int>{ 70 });
+}
+
+TEST(NoteMatrix_ApplyKeyScalePerColumn_EachColumnUsesItsOwnRoot)
+{
+  // Major (Ionian) degree offsets from the root: {0, 2, 4, 5, 7, 9, 11}. With "Trigger Note" as
+  // root, every column's eligible rows are its own pitch class plus those offsets -- not a single
+  // shared scale intersected across both axes like ApplyKeyScale.
+  NoteMatrix matrix;
+  ApplyKeyScalePerColumn(matrix, Scale::Ionian);
+
+  const bool degreeOffset[kNumPitchClasses] = {
+    /*0*/ true, /*1*/ false, /*2*/ true, /*3*/ false, /*4*/ true, /*5*/ true,
+    /*6*/ false, /*7*/ true, /*8*/ false, /*9*/ true, /*10*/ false, /*11*/ true
+  };
+
+  for (int column = 0; column < kNumPitchClasses; ++column)
+    for (int row = 0; row < kNumPitchClasses; ++row)
+      CHECK(matrix.GetCell(column, row) == degreeOffset[(row - column + kNumPitchClasses) % kNumPitchClasses]);
+
+  // Every column is in its own scale (offset 0 is always a degree), unlike ApplyKeyScale where a
+  // column outside the fixed key is entirely OFF.
+  for (int column = 0; column < kNumPitchClasses; ++column)
+    CHECK(matrix.GetCell(column, column) == true);
+}
+
+TEST(NoteMatrix_ApplyKeyScalePerColumn_ChromaticEnablesEveryCell)
+{
+  NoteMatrix matrix;
+  matrix.SetCell(0, 0, false);
+
+  ApplyKeyScalePerColumn(matrix, Scale::Chromatic);
+
+  for (int col = 0; col < kNumPitchClasses; ++col)
+    for (int row = 0; row < kNumPitchClasses; ++row)
+      CHECK(matrix.GetCell(col, row) == true);
+}
+
+TEST(NoteMatrix_ApplyKeyScalePerColumn_DoesNotTouchTheEnabledGate)
+{
+  NoteMatrix matrix;
+  matrix.SetColumnEnabled(kC, false);
+  matrix.SetRowEnabled(kD, false);
+
+  ApplyKeyScalePerColumn(matrix, Scale::Ionian);
+
+  CHECK(matrix.IsColumnEnabled(kC) == false);
+  CHECK(matrix.IsRowEnabled(kD) == false);
+}

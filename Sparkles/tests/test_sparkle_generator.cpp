@@ -83,9 +83,8 @@ TEST(SparkleGenerator_SingleRaySingleSparkle)
   SparkleGenerator::Generate(matrix, params, triggerNote, kBpm, kSampleRate, events);
 
   CHECK(events.size() == 1);
-  // pre_interval=0, ray_interval=0 -> RawSteps rounds to exactly 0, bumped away from zero to +1
-  // (§7.5) -- the sparkle can never land back on the trigger note itself.
-  CHECK(events[0].note == 61);
+  // pre_interval=0, ray_interval=0 -> RawSteps is exactly 0 -> lands on the trigger note (§7.5).
+  CHECK(events[0].note == 60);
   CHECK(events[0].timeOffsetSamples == 0); // no pre_delay/ray_delay configured
   CHECK(events[0].velocity == 127);
   CHECK(events[0].durationSamples == BeatsToSamples(1.0));
@@ -216,9 +215,9 @@ TEST(SparkleGenerator_WrapModeStop_OtherRaysUnaffected)
   std::vector<SparkleEvent> events;
   SparkleGenerator::Generate(matrix, params, triggerNote, kBpm, kSampleRate, events);
 
-  // Both rays walk the identical within-ray step sequence (bumped 1, 1, 2, 3, 4, then dies at
-  // step 5) from the same trigger note, so both produce 5 sparkles before running out of range
-  // -> 10 total, not zero.
+  // Both rays walk the identical within-ray step sequence (0, 1, 2, 3, 4, then dies at step 5)
+  // from the same trigger note, so both produce 5 sparkles before running out of range -> 10
+  // total, not zero.
   CHECK(events.size() == 10);
 }
 
@@ -550,6 +549,58 @@ TEST(SparkleGenerator_Panning_PhaseSm_DirectFormula)
   CHECK(ApproxEqual(events[0].pan, -0.6));
   CHECK(ApproxEqual(events[1].pan, -0.2));
   CHECK(ApproxEqual(events[2].pan, 0.6));
+}
+
+TEST(SparkleGenerator_NoteMatrix_RestrictsGeneratedPitchClasses)
+{
+  // Only C and G are eligible sparkle pitch classes (rows), regardless of trigger column -- every
+  // generated note across a wide range/many sparkles must land on one of those two pitch classes.
+  // This is the actual §5 wiring test: SparkleGenerator must consult the matrix per-sparkle, not
+  // just accept whatever NoteMatrix::Walk() returns for the default all-on matrix (every other test
+  // in this file uses a default matrix, so this is the only one that would catch the matrix being
+  // silently ignored).
+  NoteMatrix matrix;
+  for (int row = 0; row < kNumPitchClasses; ++row)
+    matrix.SetRowEnabled(row, row == PitchClassOf(60) || row == PitchClassOf(67)); // C, G
+
+  SparkleParams params;
+  params.nRays = 3;
+  params.nSparklesPerRay = 8;
+  params.rangeMin = 48;
+  params.rangeMax = 96;
+  params.wrapMode = WrapMode::Around;
+  params.rayInterval = 3;
+  params.interval = 1;
+
+  std::vector<SparkleEvent> events;
+  SparkleGenerator::Generate(matrix, params, 60, kBpm, kSampleRate, events);
+
+  CHECK(events.size() == 24);
+  for (const auto& event : events)
+  {
+    const int pc = PitchClassOf(event.note);
+    CHECK(pc == PitchClassOf(60) || pc == PitchClassOf(67));
+  }
+}
+
+TEST(SparkleGenerator_NoteMatrix_DisabledTriggerColumnKillsSprinkle)
+{
+  // The trigger note's own column has zero eligible rows -- no sprinkle should fire at all, not
+  // just a truncated one (§5: "no sprinkle is generated for it").
+  NoteMatrix matrix;
+  matrix.SetColumnEnabled(PitchClassOf(60), false);
+
+  SparkleParams params;
+  params.nRays = 2;
+  params.nSparklesPerRay = 4;
+  params.rangeMin = 48;
+  params.rangeMax = 96;
+  params.wrapMode = WrapMode::Around;
+
+  std::vector<SparkleEvent> events;
+  SparkleGenerator::Generate(matrix, params, 60, kBpm, kSampleRate, events);
+
+  CHECK(events.empty());
 }
 
 TEST(SparkleGenerator_Panning_Random_UsesInjectedSourceAndOnlyWidth)

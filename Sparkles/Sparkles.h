@@ -4,13 +4,17 @@
 #include "params/ParamRanges.h"
 #include "core/EventScheduler.h"
 #include "core/NoteMatrix.h"
+#include "core/PitchTracker.h"
 #include "core/SparkleGenerator.h"
 #include "ISender.h"
 #include <array>
+#include <atomic>
 #include <vector>
 
 #if IPLUG_EDITOR
 #include "ui/EnvelopeMeterControl.h"
+#include "ui/NoteBarsControl.h"
+#include "ui/NoteMatrixControl.h"
 #include "ui/TriggerLightControl.h"
 #include "ui/ValueDisplayControl.h"
 #endif
@@ -32,15 +36,20 @@ enum EParams
 enum ECtrlTags
 {
   kCtrlTagVersionNumber = 0,
-  kCtrlTagSlider,
-  kCtrlTagThresholdSlider,
-  kCtrlTagMinNoteSlider,
-  kCtrlTagMaxNoteSlider,
   kCtrlTagTitle,
   kCtrlTagEnvelopeMeter,   // envelope level bar + threshold line, see ui/EnvelopeMeterControl.h
   kCtrlTagNoteDisplay,     // last detected note name, see ui/ValueDisplayControl.h
   kCtrlTagTriggerLight,    // blinks on each threshold crossing, see ui/TriggerLightControl.h
-  kCtrlTagSprinkleCount    // number of sprinkles currently sounding, see ui/ValueDisplayControl.h
+  kCtrlTagSprinkleCount,   // number of sprinkles currently sounding, see ui/ValueDisplayControl.h
+  kCtrlTagNoteMatrix,      // §5 note-eligibility grid + column/row toggles, see ui/NoteMatrixControl.h
+  kCtrlTagNoteBars,        // per-note confidence bars along the bottom edge, see ui/NoteBarsControl.h
+  kCtrlTagShutUp,          // kills all in-flight sprinkles/rays/sparkles, see mShutUpRequested
+
+  // Every param in kParamGroups (see Sparkles.cpp) gets one tag here, in group/table order,
+  // followed by one tag per group's labelled IVGroupControl frame -- both runs are assigned at
+  // runtime as kCtrlTagFirstParamControl + index rather than hand-named, since the param table has
+  // ~35 entries. See mLayoutFunc for how tags are computed and matched back up.
+  kCtrlTagFirstParamControl
 };
 
 using namespace iplug;
@@ -62,28 +71,42 @@ public:
   void OnIdle() override;
 
 private:
-  static constexpr int kPitchBufferSize = 2048; // must be a power of two, see kPitchBufferMask
-  static constexpr int kPitchBufferMask = kPitchBufferSize - 1;
-  static constexpr double kMinPitchConfidence = 0.5; // normalized autocorrelation threshold
+  // How long an up-crossing waits for mPitchTracker to produce a confident note before the
+  // trigger is dropped silently (§2) -- clean notes fire as soon as confidence clears the
+  // Confidence param, so this is a ceiling, not a fixed wait like the old full-buffer one.
+  static constexpr double kTriggerTimeoutSeconds = 0.05;
 
-  // Candidate-note bounds live in params/ParamRanges.h (kMinTriggerableNote/kMaxTriggerableNote)
-  // since params/ParamList.h's kParamMinNote/kParamMaxNote entries need the same constants.
-  static constexpr int kMaxNoteCandidates =
-    sparkle_params::kMaxTriggerableNote - sparkle_params::kMinTriggerableNote + 1;
+  // How long the tracker's last confident note stays usable after confidence collapses --
+  // down-crossings resolve from this held note, since by the time the envelope falls the note
+  // itself is fading or gone. Past this window a down-trigger is dropped instead.
+  static constexpr double kNoteHoldSeconds = 0.25;
 
-  // Recomputes the candidate note/lag table from the current Min/Max Note params and sample
-  // rate. Called on reset and whenever those params change.
-  void RebuildNoteCandidates();
+  // Re-runs mPitchTracker.Configure() from the current Min/Max Note params and sample rate.
+  // Called on reset and whenever those params change. (Candidate-note bounds live in
+  // params/ParamRanges.h since params/ParamList.h's kParamMinNote/kParamMaxNote need them too.)
+  void ConfigurePitchTracker();
 
-  // Scores one candidate lag via normalized autocorrelation against the pitch buffer's
-  // current contents. Higher is a stronger periodicity match at that lag.
-  double ScoreNoteCandidate(int lag) const;
+  // Launches one sprinkle for a resolved trigger: blinks the trigger light, enforces
+  // kMaxSimultaneousSprinkles, generates the events and schedules them. The light fires here
+  // (i.e. only for triggers that resolved to a confident note) rather than at the raw envelope
+  // crossing -- a crossing the pitch tracker vetoes produces no sprinkle and no blink.
+  void FireSprinkle(int triggerNote, int64_t triggerSample, const sparkle_core::SparkleParams& params,
+                    double bpm, double sampleRate);
 
-  // Scores every candidate against the pitch buffer's current contents and returns the index
-  // of the best match, or -1 if none clears kMinPitchConfidence. Only called once per note
-  // onset (see mPendingNoteOn below), so an exhaustive scan is cheap enough to not need
-  // throttling.
-  int FindBestNoteCandidate() const;
+  // Set from the UI thread by the "Shut Up" button's action function (see mLayoutFunc), consumed
+  // (and cleared) at the top of the next ProcessBlock call on the audio thread. A plain atomic
+  // flag rather than routing through iPlug2's parameter-change/message plumbing -- this project
+  // builds as a single non-distributed object where the UI and DSP share this instance directly
+  // (see mNoteMatrix's cross-thread sharing below), and landing within the next block is plenty
+  // fast for a manual "stop the sound" button.
+  std::atomic<bool> mShutUpRequested{ false };
+
+  // Kills every sprinkle/ray/sparkle currently in flight or still pending: sends MIDI All-Notes-
+  // Off, drops every pending note-on/off in mEventScheduler, and cancels a trigger that was armed
+  // but hadn't fired yet. Called from ProcessBlock when mShutUpRequested is consumed, and from
+  // OnReset(). Unlike OnReset(), leaves pitch-tracking/envelope state alone -- this is "stop the
+  // sound", not "reinitialize".
+  void ShutUp();
 
   // Hard ceiling on sprinkles (trigger bursts) in flight at once -- a new trigger that arrives
   // once this many are still sounding is dropped entirely, rather than truncating any one
@@ -96,23 +119,25 @@ private:
   // checked against this, not the raw instantaneous input sample.
   double mEnvelope = 0.0;
 
-  // Set when the amplitude threshold is crossed. The pitch decision is deferred rather than
-  // made immediately: the pitch buffer still holds pre-onset (e.g. silent) audio at the exact
-  // moment of crossing, so scoring it right away would misdetect. mSamplesUntilNoteDecision
-  // counts down kPitchBufferSize samples so the whole analysis window has been overwritten by
-  // the new note's audio before FindBestNoteCandidate() runs.
-  bool mPendingNoteOn = false;
-  int mSamplesUntilNoteDecision = 0;
+  // Continuous pitch tracker (see core/PitchTracker.h's header comment): fed every input sample,
+  // analyzes on its own hop cadence regardless of trigger state. Trigger resolution below only
+  // queries it; the UI's note display mirrors it via mNoteSender.
+  sparkle_core::PitchTracker mPitchTracker;
 
-  std::array<float, kPitchBufferSize> mPitchBuffer{};
-  int mPitchBufferPos = 0;
+  // Set when an up-crossing arms a trigger whose pitch isn't confident yet. ProcessBlock then
+  // polls the tracker each sample: the sprinkle fires the moment a confident hop lands at/after
+  // mTriggerArmTime (one hop of slack, so a note already confidently sounding fires immediately),
+  // or the trigger is dropped silently once mTriggerDeadline passes. Down-crossings never arm
+  // this -- they resolve immediately from the tracker's held note (see kNoteHoldSeconds above).
+  // Both times are on mPitchTracker.Now()'s clock.
+  bool mTriggerPending = false;
+  int64_t mTriggerArmTime = 0;
+  int64_t mTriggerDeadline = 0;
 
-  std::array<int, kMaxNoteCandidates> mNoteCandidateMidi{};
-  std::array<int, kMaxNoteCandidates> mNoteCandidateLag{};
-  int mNumNoteCandidates = 0;
-
-  // §5 note-eligibility matrix. Not persisted/quick-filled yet (see params/ParamSnapshot.h's
-  // header comment) -- default-constructed, which leaves every cell/row/column enabled.
+  // §5 note-eligibility matrix, edited directly by ui/NoteMatrixControl.h and regenerated from
+  // kParamKeyRoot/kParamKeyScale in OnParamChange (§5.1). Not persisted yet across plugin
+  // save/reload (see params/ParamSnapshot.h's header comment) -- default-constructed, which leaves
+  // every cell/row/column enabled.
   sparkle_core::NoteMatrix mNoteMatrix;
 
   sparkle_core::EventScheduler<> mEventScheduler;
@@ -145,7 +170,8 @@ private:
   // impl in Sparkles.cpp). Declared alongside the DSP state they mirror since PushData() is called
   // from ProcessBlock; TransmitData() drains them from OnIdle on the main thread.
   ISender<1> mEnvelopeSender;
-  ISender<1> mNoteSender;
+  ISender<2> mNoteSender; // {stable note (-1 = none), its confidence 0-1}, pushed once per block
+  ISender<sparkle_params::kNumTriggerableNotes> mNoteBarsSender; // per-note confidences, once per block
   ISender<1> mTriggerSender;
   ISender<1> mSprinkleCountSender;
 #endif

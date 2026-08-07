@@ -37,8 +37,10 @@
 
 // --- Pre-spec scaffold ---------------------------------------------------------------------------
 // Dry passthrough gain from the original prototype. docs/SPEC.md §1 says the plugin's only output
-// is MIDI (no audio out) -- kept until ProcessBlock's passthrough is actually removed.
-SPARKLE_PARAM_DOUBLE(kParamGain, "Gain", 0., 0., 100., 0.01, "%")
+// is MIDI (no audio out) -- kept until ProcessBlock's passthrough is actually removed. Named
+// "Passthrough" rather than "Gain" for the user-facing display string since it never boosts the
+// signal (0-100%) -- it only controls how much of the dry input bleeds through to the output.
+SPARKLE_PARAM_DOUBLE(kParamGain, "Passthrough", 0., 0., 100., 0.01, "%")
 
 // --- §2 Detection stage ---------------------------------------------------------------------------
 SPARKLE_PARAM_ENUM  (kParamTriggerType,  "Trigger Type", 0, "Up", "Down", "Both")
@@ -48,17 +50,25 @@ SPARKLE_PARAM_DOUBLE(kParamThreshold,    "Threshold", 50., 0., 100., 0.01, "%")
 // what DetectionParams::reactiveness and the formula above consume -- no unit conversion needed
 // at the read site. Default is deliberately tiny -- see ProcessBlock's envelope-tracking comment.
 SPARKLE_PARAM_DOUBLE(kParamReactiveness, "Reactiveness", 0.001, 0., 1., 0.0001, "")
+// Minimum normalized pitch-tracker confidence (core/PitchTracker.h's autocorrelation score) a
+// trigger needs before it fires -- crossings whose note can't be identified at least this
+// confidently are dropped rather than guessed at. Same 0-1 space the tracker scores in, so no
+// unit conversion at the read site (same rationale as reactiveness above).
+SPARKLE_PARAM_DOUBLE(kParamConfidence,   "Confidence", 0.6, 0., 1., 0.01, "")
 // §2's detect_note_min/detect_note_max -- named kParamMinNote/kParamMaxNote to match the
-// prototype's existing UI control tags (kCtrlTagMinNoteSlider etc.), since the UI isn't being
-// touched by this pass.
+// prototype's existing UI control tags.
 SPARKLE_PARAM_INT(kParamMinNote, "Min Note", sparkle_params::kDefaultMinTriggerNote, sparkle_params::kMinTriggerableNote, sparkle_params::kMaxTriggerableNote, "")
 SPARKLE_PARAM_INT(kParamMaxNote, "Max Note", sparkle_params::kDefaultMaxTriggerNote, sparkle_params::kMinTriggerableNote, sparkle_params::kMaxTriggerableNote, "")
 
 // --- §5.1 Key + scale quick-fill --------------------------------------------------------------------
-// Regenerating the note matrix from these two (and excluding them from presets per §8) is future
-// work -- only the param definitions exist here for now.
-// Option order matches sparkle_core::PitchClass exactly, see core/NoteMatrix.h.
-SPARKLE_PARAM_ENUM(kParamKeyRoot, "Key Root", 0, "A", "A#", "B", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#")
+// Sparkles::OnParamChange regenerates the note matrix from these two via sparkle_core::ApplyKeyScale.
+// Excluding them from presets per §8 is still future work.
+// The first 12 options' order matches sparkle_core::PitchClass exactly, see core/NoteMatrix.h. The
+// trailing "Trigger Note" option is a 13th, non-PitchClass value (index kNumPitchClasses == 12):
+// selecting it switches OnParamChange to sparkle_core::ApplyKeyScalePerColumn instead of
+// ApplyKeyScale, so each column uses its own trigger pitch class as the scale root rather than one
+// fixed root shared by all columns.
+SPARKLE_PARAM_ENUM(kParamKeyRoot, "Key Root", 0, "A", "A#", "B", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "Trigger Note")
 // Option order matches sparkle_core::Scale exactly, see core/NoteMatrix.h.
 SPARKLE_PARAM_ENUM(kParamKeyScale, "Key Scale", 0,
   "Ionian", "Dorian", "Phrygian", "Lydian", "Mixolydian", "Aeolian", "Locrian",
@@ -80,9 +90,12 @@ SPARKLE_PARAM_ENUM  (kParamPreDelayUnit, "Pre Delay Unit", 0, "Beats", "ms", "s"
 SPARKLE_PARAM_INT   (kParamPreInterval, "Pre Interval", 0, -48, 48, "")
 
 // --- §7.3 Base per-sparkle properties, evaluated directly --------------------------------------------
-SPARKLE_PARAM_DOUBLE(kParamLoudness,   "Loudness", 127., 1., 127., 1., "")
-SPARKLE_PARAM_DOUBLE(kParamLoudnessRm, "Loudness Rm", 1., 0.1, 3., 0.01, "x")
-SPARKLE_PARAM_DOUBLE(kParamLoudnessSm, "Loudness Sm", 1., 0.1, 3., 0.01, "x")
+// Display name is "Velocity" (MIDI's term for the same concept) rather than SPEC.md's "loudness" --
+// the ids (kParamLoudness*) are left alone since renaming them would ripple into ParamSnapshot.h,
+// SparkleGenerator, and the tests for a purely cosmetic, user-facing change.
+SPARKLE_PARAM_DOUBLE(kParamLoudness,   "Velocity", 127., 1., 127., 1., "")
+SPARKLE_PARAM_DOUBLE(kParamLoudnessRm, "Velocity Rm", 1., 0.1, 3., 0.01, "x")
+SPARKLE_PARAM_DOUBLE(kParamLoudnessSm, "Velocity Sm", 1., 0.1, 3., 0.01, "x")
 
 SPARKLE_PARAM_DOUBLE(kParamDuration,     "Duration", 0.0625, 0.001, 60., 0.001, "")
 SPARKLE_PARAM_ENUM  (kParamDurationUnit, "Duration Unit", 0, "Beats", "ms", "s")

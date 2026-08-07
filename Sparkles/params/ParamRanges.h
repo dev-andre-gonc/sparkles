@@ -13,4 +13,9 @@ namespace sparkle_params
   constexpr int kMaxTriggerableNote = 108;   // C8
   constexpr int kDefaultMinTriggerNote = 48; // C3
   constexpr int kDefaultMaxTriggerNote = 84; // C6
+
+  // One per-note confidence bar in the UI's bottom strip (ui/NoteBarsControl.h) for every note
+  // the detector could ever be configured to hear -- always the full triggerable span, not the
+  // currently selected detect range, so the strip's geometry never shifts when Min/Max Note move.
+  constexpr int kNumTriggerableNotes = kMaxTriggerableNote - kMinTriggerableNote + 1;
 }

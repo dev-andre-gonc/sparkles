@@ -205,9 +205,7 @@ namespace sparkle_core
             break; // hard cap reached mid-ray -- truncate gracefully rather than grow the buffer
 
           const double rawSteps = rayIntervalOffset + withinRayIntervalAccum;
-          int steps = static_cast<int>(std::lround(rawSteps));
-          if (steps == 0)
-            steps = (rawSteps < 0.0) ? -1 : 1; // never land back on the trigger note (§7.5)
+          const int steps = static_cast<int>(std::lround(rawSteps));
 
           const auto note = matrix.Walk(triggerNote, steps, params.rangeMin, params.rangeMax, params.wrapMode);
           if (!note.has_value())

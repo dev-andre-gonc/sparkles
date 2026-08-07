@@ -23,7 +23,8 @@
 // (de)serialization, entirely outside the preset mechanism (not yet implemented). key_root/
 // key_scale (§5.1) ARE ordinary IParams below -- they're cheap, few, and worth having
 // host-automatable even though, per §8, presets should eventually be made to leave them alone too
-// (also not yet implemented; nothing currently regenerates the matrix from them either).
+// (not yet implemented). Sparkles::OnParamChange regenerates the matrix from them directly (see
+// sparkle_core::ApplyKeyScale), so they don't need to be read here.
 namespace sparkle_params
 {
   struct ParamSnapshot
@@ -33,7 +34,7 @@ namespace sparkle_params
 
     // §5.1 quick-fill selectors. Not consumed by sparkle_core::SparkleGenerator itself (that
     // takes a NoteMatrix, not these), so they don't belong nested under `sparkle` above.
-    int keyRoot = 0; // sparkle_core::PitchClass
+    int keyRoot = 0; // sparkle_core::PitchClass, or kNumPitchClasses for the "Trigger Note" option
     sparkle_core::Scale keyScale = sparkle_core::Scale::Ionian;
   };
 
@@ -53,6 +54,7 @@ namespace sparkle_params
     d.triggerType = static_cast<sparkle_core::TriggerType>(plugin.GetParam(kParamTriggerType)->Int());
     d.threshold = plugin.GetParam(kParamThreshold)->Value() / 100.;
     d.reactiveness = plugin.GetParam(kParamReactiveness)->Value();
+    d.confidence = plugin.GetParam(kParamConfidence)->Value();
     d.detectNoteMin = plugin.GetParam(kParamMinNote)->Int();
     d.detectNoteMax = plugin.GetParam(kParamMaxNote)->Int();
 

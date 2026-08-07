@@ -3,18 +3,21 @@
 #include "IControl.h"
 #include "ISender.h"
 #include "IPlugStructs.h"
+#include <array>
 #include <functional>
 
 using namespace iplug;
 using namespace igraphics;
 
-// Text control that displays a single float value pushed from the audio thread via ISender<1>,
-// formatted by a caller-supplied function -- shared between the detected-note display (formats a
-// MIDI note number as e.g. "C4") and the active-sprinkle-count display (formats an int as text).
+// Text control that displays N float values pushed from the audio thread via ISender<N>,
+// formatted by a caller-supplied function -- shared between the detected-note display (N=2:
+// formats a MIDI note number + confidence as e.g. "C4 87%") and the active-sprinkle-count
+// display (N=1: formats an int as text).
+template <int N = 1>
 class ValueDisplayControl : public ITextControl
 {
 public:
-  using FormatFunc = std::function<void(float value, WDL_String& str)>;
+  using FormatFunc = std::function<void(const std::array<float, N>& vals, WDL_String& str)>;
 
   ValueDisplayControl(const IRECT& bounds, const char* defaultStr, const IText& text, FormatFunc formatFunc)
   : ITextControl(bounds, defaultStr, text)
@@ -27,11 +30,11 @@ public:
     if (msgTag == ISender<>::kUpdateMessage)
     {
       IByteStream stream(pData, dataSize);
-      ISenderData<1> d;
+      ISenderData<N> d;
       stream.Get(&d, 0);
 
       WDL_String str;
-      mFormatFunc(d.vals[0], str);
+      mFormatFunc(d.vals, str);
       SetStr(str.Get());
       SetDirty(false);
     }
