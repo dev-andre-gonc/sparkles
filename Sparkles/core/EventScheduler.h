@@ -129,6 +129,31 @@ namespace sparkle_core
       return count;
     }
 
+    // Immediately treats every currently pending note-off as due right now (offset 0), regardless
+    // of its scheduled sample position -- for a "kill everything currently sounding" action (e.g.
+    // a panic/shut-up button), as opposed to FlushBlock's normal due-by-transport-time draining.
+    // Every pending note-on is dropped without emitting anything, since it hasn't sounded yet and
+    // so has no corresponding note-off to speak of. Like FlushBlock, only pops up to outCapacity
+    // per call -- call in a loop until it returns fewer than outCapacity to fully drain both pools.
+    size_t StopAll(SchedEvent* outEvents, size_t outCapacity)
+    {
+      mNoteOnCount = 0;
+
+      size_t count = 0;
+      while (count < outCapacity && mNoteOffCount > 0)
+      {
+        const PendingNoteOff due = mNoteOffs[0];
+        RemoveFront(mNoteOffs, mNoteOffCount);
+
+        SchedEvent event;
+        event.type = SchedEventType::NoteOff;
+        event.note = due.note;
+        event.offsetInBlock = 0;
+        outEvents[count++] = event;
+      }
+      return count;
+    }
+
   private:
     struct PendingNoteOn
     {

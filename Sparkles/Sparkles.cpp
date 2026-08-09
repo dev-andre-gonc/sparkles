@@ -391,17 +391,30 @@ void Sparkles::ShutUp()
 {
   mTriggerPending = false;
 
-  // Any pending note-off in the scheduler corresponds to a note we've already sent a real Note On
-  // for. mEventScheduler.Reset() below drops it silently -- without this, that note would be left
-  // stuck sounding forever, since nothing else would ever tell the host to turn it off. All-Notes-
-  // Off (CC 123) is the standard MIDI mechanism for exactly this situation (e.g. transport
-  // stop/restart, sample rate change, the "Shut Up" button), and covers it regardless of how many
-  // notes are pending.
+  // Explicitly turn off every note we've actually sent a real Note On for and haven't turned off
+  // yet -- mEventScheduler.StopAll() drains exactly those (its note-off pool), as immediate events,
+  // and silently drops any note-ons that hadn't fired yet (nothing to turn off for those). Don't
+  // rely solely on the All-Notes-Off CC below for this: it's a Channel Mode Message that not every
+  // downstream synth/host honors, which was leaving notes stuck sounding forever when this method
+  // used to send only that. Looped like ProcessBlock's own FlushBlock drain, since StopAll only
+  // pops up to outCapacity per call.
+  std::array<sparkle_core::SchedEvent, 64> schedEvents;
+  size_t nSchedEvents;
+  do {
+    nSchedEvents = mEventScheduler.StopAll(schedEvents.data(), schedEvents.size());
+    for (size_t i = 0; i < nSchedEvents; i++) {
+      IMidiMsg msg;
+      msg.MakeNoteOffMsg(schedEvents[i].note, schedEvents[i].offsetInBlock);
+      SendMidiMsg(msg);
+    }
+  } while (nSchedEvents == schedEvents.size());
+
+  // Backstop All-Notes-Off (CC 123) on top of the explicit note-offs above -- cheap insurance for
+  // anything outside our own bookkeeping, and matches the original transport-stop/reset behavior.
   IMidiMsg allNotesOffMsg;
   allNotesOffMsg.MakeControlChangeMsg(IMidiMsg::kAllNotesOff, 0.0);
   SendMidiMsg(allNotesOffMsg);
 
-  mEventScheduler.Reset();
   mNumActiveSprinkles = 0;
 }
 

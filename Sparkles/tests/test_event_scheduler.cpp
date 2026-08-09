@@ -240,6 +240,58 @@ TEST(EventScheduler_FlushBlockOutputCapacityOverflow_DefersRemainderToNextFlush)
   CHECK(sched.PendingNoteOnCount() == 0);
 }
 
+TEST(EventScheduler_StopAll_TurnsOffOnlyAlreadySoundingNotes)
+{
+  EventScheduler<> sched;
+  // note 60 fires and its off is queued (in mNoteOffs); note 61 is still pending in mNoteOns,
+  // hasn't sounded yet.
+  CHECK(sched.Schedule(60, 100, /*durationSamples=*/10000, /*atSample=*/0));
+  CHECK(sched.Schedule(61, 100, /*durationSamples=*/10000, /*atSample=*/1000));
+
+  auto block0 = Flush(sched, 0, 512);
+  CHECK(block0.size() == 1);
+  CHECK(block0[0].type == SchedEventType::NoteOn && block0[0].note == 60);
+  CHECK(sched.PendingNoteOnCount() == 1);  // note 61
+  CHECK(sched.PendingNoteOffCount() == 1); // note 60's off
+
+  std::array<SchedEvent, 64> buf;
+  const size_t n = sched.StopAll(buf.data(), buf.size());
+
+  // Only note 60 (already sounding) gets an immediate off; note 61 never sounded, so it's simply
+  // dropped rather than producing a spurious note-off.
+  CHECK(n == 1);
+  CHECK(buf[0].type == SchedEventType::NoteOff);
+  CHECK(buf[0].note == 60);
+  CHECK(buf[0].offsetInBlock == 0);
+
+  CHECK(sched.PendingNoteOnCount() == 0);
+  CHECK(sched.PendingNoteOffCount() == 0);
+
+  // Nothing left to flush afterwards -- both pools are actually empty, not just visually drained.
+  auto after = Flush(sched, 512, 10000);
+  CHECK(after.empty());
+}
+
+TEST(EventScheduler_StopAll_DrainsMoreThanOutputCapacityAcrossCalls)
+{
+  EventScheduler<> sched;
+  for (int i = 0; i < 4; ++i)
+    CHECK(sched.Schedule(60 + i, 100, /*durationSamples=*/10000, /*atSample=*/i));
+
+  auto block0 = Flush(sched, 0, 512);
+  CHECK(block0.size() == 4); // all 4 note-ons due in this block
+  CHECK(sched.PendingNoteOffCount() == 4);
+
+  std::array<SchedEvent, 2> buf;
+  const size_t first = sched.StopAll(buf.data(), buf.size());
+  CHECK(first == 2);
+  CHECK(sched.PendingNoteOffCount() == 2); // remainder still pending, not lost
+
+  const size_t second = sched.StopAll(buf.data(), buf.size());
+  CHECK(second == 2);
+  CHECK(sched.PendingNoteOffCount() == 0);
+}
+
 TEST(EventScheduler_TenSecondsOfBlocks_EveryNoteOnGetsExactlyOneNoteOff)
 {
   // End-to-end simulation: drive real 512-sample ProcessBlock-sized chunks across a 10 second
