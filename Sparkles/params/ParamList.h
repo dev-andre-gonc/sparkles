@@ -43,8 +43,15 @@
 SPARKLE_PARAM_DOUBLE(kParamGain, "Passthrough", 0., 0., 100., 0.01, "%")
 
 // --- §2 Detection stage ---------------------------------------------------------------------------
+// What input(s) can arm a trigger. Default is Audio-only, matching pre-existing behavior.
+SPARKLE_PARAM_ENUM  (kParamDetectionMode, "Detection Mode", 0, "Audio", "MIDI", "Both")
 SPARKLE_PARAM_ENUM  (kParamTriggerType,  "Trigger Type", 0, "Up", "Down", "Both")
 SPARKLE_PARAM_DOUBLE(kParamThreshold,    "Threshold", 50., 0., 100., 0.01, "%")
+// MIDI equivalent of Threshold above: a note-on/off must meet this velocity to arm a trigger when
+// Detection Mode is MIDI or Both (§2). Note-off velocity is usually 0 on real controllers, so this
+// is checked against the velocity the note was originally played at, not the note-off's own data
+// byte -- see Sparkles::ProcessMidiMsg's held-note-velocity tracking.
+SPARKLE_PARAM_INT   (kParamMinVelocity,  "Min Velocity", 1, 1, 127, "")
 // Envelope follower coefficient (§2): env = env*(1-reactiveness) + |in|*reactiveness, applied
 // every sample. Expressed directly in this 0-1 coefficient space (not a %) since that's exactly
 // what DetectionParams::reactiveness and the formula above consume -- no unit conversion needed

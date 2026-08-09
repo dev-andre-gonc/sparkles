@@ -79,8 +79,10 @@ namespace
   };
 
   constexpr ParamCtrlDesc kDetectionControls[] = {
+    { kParamDetectionMode,"Detect",       EParamCtrlKind::Dropdown },
     { kParamTriggerType,  "Trigger",      EParamCtrlKind::Dropdown },
     { kParamThreshold,    "Threshold",    EParamCtrlKind::Knob },
+    { kParamMinVelocity,  "Min Velocity", EParamCtrlKind::Knob },
     { kParamReactiveness, "Reactiveness", EParamCtrlKind::Knob },
     { kParamConfidence,   "Confidence",   EParamCtrlKind::Knob },
     { kParamMinNote,      "Min Note",     EParamCtrlKind::Knob },
@@ -385,6 +387,63 @@ void Sparkles::OnReset()
   ShutUp();
   mBlockStartSample = 0;
   mEnvelope = 0.0;
+  mMidiQueue.Resize(GetBlockSize());
+  mMidiQueue.Clear();
+  mHeldNoteVelocity.fill(-1);
+}
+
+void Sparkles::ProcessMidiMsg(const IMidiMsg& msg)
+{
+  // Queued here (called before ProcessBlock, per IPlugProcessor's contract) and drained
+  // sample-by-sample from inside ProcessBlock's main loop -- see HandleMidiTrigger.
+  mMidiQueue.Add(msg);
+}
+
+void Sparkles::HandleMidiTrigger(const IMidiMsg& msg, int64_t triggerSample,
+                                  const sparkle_core::DetectionParams& detection,
+                                  const sparkle_core::SparkleParams& sparkleParams, double bpm, double sampleRate)
+{
+  const int note = msg.NoteNumber();
+  if (note < 0 || note >= (int) mHeldNoteVelocity.size())
+    return;
+
+  // A Note On with velocity 0 is conventionally a Note Off (running-status optimization) -- treat
+  // it as one rather than as a zero-velocity trigger.
+  const bool isNoteOn = msg.StatusMsg() == IMidiMsg::kNoteOn && msg.Velocity() > 0;
+  const bool isNoteOff = msg.StatusMsg() == IMidiMsg::kNoteOff ||
+                          (msg.StatusMsg() == IMidiMsg::kNoteOn && msg.Velocity() == 0);
+  if (!isNoteOn && !isNoteOff)
+    return;
+
+  const bool midiListening = detection.detectionMode == sparkle_core::DetectionMode::Midi ||
+                              detection.detectionMode == sparkle_core::DetectionMode::Both;
+
+  // Keep held-note bookkeeping current even while not listening for MIDI triggers, so switching
+  // Detection Mode to MIDI/Both mid-performance doesn't inherit a stale velocity for a note that
+  // was already held before the switch.
+  if (isNoteOn)
+    mHeldNoteVelocity[note] = msg.Velocity();
+
+  if (!midiListening) {
+    if (isNoteOff)
+      mHeldNoteVelocity[note] = -1;
+    return;
+  }
+
+  const sparkle_core::TriggerType triggerType = detection.triggerType;
+
+  if (isNoteOn) {
+    const bool fireUp = triggerType == sparkle_core::TriggerType::Up || triggerType == sparkle_core::TriggerType::Both;
+    if (fireUp && msg.Velocity() >= detection.minVelocity)
+      FireSprinkle(note, triggerSample, sparkleParams, bpm, sampleRate);
+  }
+  else { // isNoteOff -- gate on the velocity the note was struck with, not the note-off's own byte.
+    const int heldVelocity = mHeldNoteVelocity[note];
+    mHeldNoteVelocity[note] = -1;
+    const bool fireDown = triggerType == sparkle_core::TriggerType::Down || triggerType == sparkle_core::TriggerType::Both;
+    if (fireDown && heldVelocity >= detection.minVelocity)
+      FireSprinkle(note, triggerSample, sparkleParams, bpm, sampleRate);
+  }
 }
 
 void Sparkles::ShutUp()
@@ -492,7 +551,22 @@ void Sparkles::ProcessBlock(sample** inputs, sample** outputs, int nFrames)
   mPitchTracker.SetConfidenceThreshold(snapshot.detection.confidence);
   const int64_t triggerTimeoutSamples = static_cast<int64_t>(std::llround(kTriggerTimeoutSeconds * sampleRate));
 
+  // Whether the audio envelope path below is allowed to arm/fire triggers this block -- Detection
+  // Mode gates it the same way it gates HandleMidiTrigger's MIDI path (see that function).
+  const bool audioTriggerEnabled = snapshot.detection.detectionMode != sparkle_core::DetectionMode::Midi;
+
   for (int s = 0; s < nFrames; s++) {
+    // Drain every MIDI message queued (by ProcessMidiMsg) for this exact sample offset before
+    // doing anything else this sample -- keeps MIDI-triggered sprinkles sample-accurate rather
+    // than all landing at block start.
+    while (!mMidiQueue.Empty()) {
+      const IMidiMsg& msg = mMidiQueue.Peek();
+      if (msg.mOffset > s)
+        break;
+      HandleMidiTrigger(msg, blockStart + s, snapshot.detection, snapshot.sparkle, bpm, sampleRate);
+      mMidiQueue.Remove();
+    }
+
     // Fed unconditionally (0 when no input connected) so the tracker's clock never drifts from
     // the sample count -- mTriggerArmTime/mTriggerDeadline below are on that clock.
     const double pitchSample =
@@ -513,7 +587,12 @@ void Sparkles::ProcessBlock(sample** inputs, sample** outputs, int nFrames)
     const double prevEnvelope = mEnvelope;
     mEnvelope = mEnvelope * (1.0 - snapshot.detection.reactiveness) + inputLevel * snapshot.detection.reactiveness;
 
-    if (mTriggerPending) {
+    if (!audioTriggerEnabled) {
+      // Detection Mode is MIDI-only -- don't arm/fire from the envelope. Drop (rather than leave
+      // stranded) a trigger that was already armed before a mode switch landed mid-block.
+      mTriggerPending = false;
+    }
+    else if (mTriggerPending) {
       // Armed up-crossing: fire the moment the tracker has a confident hop at/after arming.
       // The one-hop slack means a note that was already confidently sounding when the envelope
       // crossed (e.g. a swell on a sustained note) fires immediately instead of waiting for the

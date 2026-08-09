@@ -2,6 +2,7 @@
 
 #include "IPlug_include_in_plug_hdr.h"
 #include "params/ParamRanges.h"
+#include "core/DetectionParams.h"
 #include "core/EventScheduler.h"
 #include "core/NoteMatrix.h"
 #include "core/PitchTracker.h"
@@ -66,11 +67,29 @@ public:
   
 #if IPLUG_DSP // http://bit.ly/2S64BDd
   void ProcessBlock(sample** inputs, sample** outputs, int nFrames) override;
+  void ProcessMidiMsg(const IMidiMsg& msg) override;
   void OnReset() override;
   void OnParamChange(int paramIdx) override;
   void OnIdle() override;
 
 private:
+  // Handles one queued incoming note-on/note-off at its sample-accurate position (see mMidiQueue
+  // below). Resolves velocity gating and Up/Down/Both trigger-type routing the same way the audio
+  // envelope crossings below do, then fires straight through FireSprinkle -- unlike the audio path,
+  // the note is already known exactly, so there's no pitch tracker/confidence step to wait on.
+  void HandleMidiTrigger(const IMidiMsg& msg, int64_t triggerSample, const sparkle_core::DetectionParams& detection,
+                          const sparkle_core::SparkleParams& sparkleParams, double bpm, double sampleRate);
+
+  // Incoming MIDI queued by ProcessMidiMsg (audio thread, called before ProcessBlock) and drained
+  // sample-by-sample inside ProcessBlock's main loop, so a note-on/off lands on the same sample
+  // offset it arrived at rather than being handled all at once at block start.
+  IMidiQueue mMidiQueue;
+
+  // Velocity a currently-held MIDI note was struck with, indexed by note number; -1 = not held.
+  // Needed because a note-off's own velocity byte is usually 0 on real controllers, so Min Velocity
+  // gating for a Down/end-of-note trigger has to look back at the note-on that started it instead
+  // (see HandleMidiTrigger).
+  std::array<int, 128> mHeldNoteVelocity;
   // How long an up-crossing waits for mPitchTracker to produce a confident note before the
   // trigger is dropped silently (§2) -- clean notes fire as soon as confidence clears the
   // Confidence param, so this is a ceiling, not a fixed wait like the old full-buffer one.
@@ -89,7 +108,11 @@ private:
   // Launches one sprinkle for a resolved trigger: blinks the trigger light, enforces
   // kMaxSimultaneousSprinkles, generates the events and schedules them. The light fires here
   // (i.e. only for triggers that resolved to a confident note) rather than at the raw envelope
-  // crossing -- a crossing the pitch tracker vetoes produces no sprinkle and no blink.
+  // crossing -- a crossing the pitch tracker vetoes produces no sprinkle and no blink. It still
+  // fires even when Generate() comes back empty (e.g. triggerNote's column has no eligible notes
+  // under the current Key/Scale + note matrix, §5) -- the light reports "a trigger resolved",
+  // not "a sprinkle sounded", so an out-of-scale note still gets visible feedback that it was
+  // heard and rejected by the matrix rather than looking like detection missed it entirely.
   void FireSprinkle(int triggerNote, int64_t triggerSample, const sparkle_core::SparkleParams& params,
                     double bpm, double sampleRate);
 

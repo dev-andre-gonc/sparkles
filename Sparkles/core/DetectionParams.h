@@ -5,7 +5,8 @@
 // core/SparkleGenerator.h) so it can be included by both the plugin and the standalone test binary.
 namespace sparkle_core
 {
-  // Which envelope-crossing direction(s) fire a trigger (§2).
+  // Which envelope-crossing direction(s) fire a trigger (§2). Shared between the audio and MIDI
+  // detection paths: for MIDI, "Up"/"Down" mean note-on/note-off instead of envelope crossings.
   enum class TriggerType
   {
     Up,
@@ -13,13 +14,26 @@ namespace sparkle_core
     Both
   };
 
+  // Which input(s) can arm a trigger. Audio uses the envelope-follower/pitch-tracker path below;
+  // MIDI reads incoming note-on/note-off directly (see Sparkles::ProcessMidiMsg) -- the two are
+  // independent trigger sources that both feed the same FireSprinkle path, and both can be active
+  // at once under Both.
+  enum class DetectionMode
+  {
+    Audio,
+    Midi,
+    Both
+  };
+
   struct DetectionParams
   {
+    DetectionMode detectionMode = DetectionMode::Audio;
     TriggerType triggerType = TriggerType::Up;
     double threshold = 0.5;    // normalized 0-1; envelope level that must be crossed (§2)
     double reactiveness = 0.5; // normalized 0-1; envelope follower responsiveness (§2)
     double confidence = 0.6;   // normalized 0-1; min pitch-tracker score to accept a trigger (§2)
     int detectNoteMin = 48;    // MIDI note, inclusive (§2, §3)
     int detectNoteMax = 84;    // MIDI note, inclusive (§2, §3)
+    int minVelocity = 1;       // [1, 127]; MIDI note velocity a note-on/off must meet to trigger
   };
 }

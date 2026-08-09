@@ -51,8 +51,10 @@ namespace sparkle_params
     ParamSnapshot snapshot;
 
     sparkle_core::DetectionParams& d = snapshot.detection;
+    d.detectionMode = static_cast<sparkle_core::DetectionMode>(plugin.GetParam(kParamDetectionMode)->Int());
     d.triggerType = static_cast<sparkle_core::TriggerType>(plugin.GetParam(kParamTriggerType)->Int());
     d.threshold = plugin.GetParam(kParamThreshold)->Value() / 100.;
+    d.minVelocity = plugin.GetParam(kParamMinVelocity)->Int();
     d.reactiveness = plugin.GetParam(kParamReactiveness)->Value();
     d.confidence = plugin.GetParam(kParamConfidence)->Value();
     d.detectNoteMin = plugin.GetParam(kParamMinNote)->Int();
