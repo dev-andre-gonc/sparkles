@@ -628,3 +628,111 @@ TEST(SparkleGenerator_Panning_Random_UsesInjectedSourceAndOnlyWidth)
   for (size_t i = 0; i < 5; ++i)
     CHECK(ApproxEqual(events[i].pan, expected[i]));
 }
+
+TEST(SparkleGenerator_Envelope_DefaultsMatchStructDefaults)
+{
+  NoteMatrix matrix;
+  SparkleParams params;
+  params.nRays = 1;
+  params.nSparklesPerRay = 1;
+  params.rangeMin = 60;
+  params.rangeMax = 71;
+  params.wrapMode = WrapMode::Stop;
+
+  std::vector<SparkleEvent> events;
+  SparkleGenerator::Generate(matrix, params, 60, kBpm, kSampleRate, events);
+
+  CHECK(events.size() == 1);
+  CHECK(events[0].attackSamples == static_cast<int64_t>(std::llround(params.attack * kSampleRate)));
+  CHECK(events[0].decaySamples == static_cast<int64_t>(std::llround(params.decay * kSampleRate)));
+  CHECK(events[0].releaseSamples == static_cast<int64_t>(std::llround(params.release * kSampleRate)));
+  CHECK(ApproxEqual(events[0].sustainLevel, params.sustain));
+}
+
+TEST(SparkleGenerator_Envelope_RmAppliesPerRay)
+{
+  // Same geometric-decay pattern as SparkleGenerator_GeometricDecay, applied to attack/release
+  // instead of loudness -- one ray per index so `_rm` (not `_sm`) is what's under test.
+  NoteMatrix matrix;
+  SparkleParams params;
+  params.nRays = 4;
+  params.nSparklesPerRay = 1;
+  params.rangeMin = 60;
+  params.rangeMax = 90;
+  params.wrapMode = WrapMode::Around;
+  params.rayInterval = 1;
+  params.interval = 1;
+  params.attack = 0.1;
+  params.attackRm = 2.0; // doubles every ray
+  params.release = 0.2;
+  params.releaseRm = 0.5; // halves every ray
+
+  std::vector<SparkleEvent> events;
+  SparkleGenerator::Generate(matrix, params, 60, kBpm, kSampleRate, events);
+
+  CHECK(events.size() == 4);
+  for (int rayN = 0; rayN < 4; ++rayN)
+  {
+    const double expectedAttackSeconds = 0.1 * std::pow(2.0, rayN);
+    const double expectedReleaseSeconds = 0.2 * std::pow(0.5, rayN);
+    CHECK(events[rayN].attackSamples == static_cast<int64_t>(std::llround(expectedAttackSeconds * kSampleRate)));
+    CHECK(events[rayN].releaseSamples == static_cast<int64_t>(std::llround(expectedReleaseSeconds * kSampleRate)));
+  }
+}
+
+TEST(SparkleGenerator_Envelope_SmAppliesPerSparkleWithinRay)
+{
+  NoteMatrix matrix;
+  SparkleParams params;
+  params.nRays = 1;
+  params.nSparklesPerRay = 3;
+  params.rangeMin = 60;
+  params.rangeMax = 90;
+  params.wrapMode = WrapMode::Around;
+  params.rayInterval = 1;
+  params.interval = 1;
+  params.decay = 0.4;
+  params.decaySm = 0.5; // halves every sparkle within the ray
+
+  std::vector<SparkleEvent> events;
+  SparkleGenerator::Generate(matrix, params, 60, kBpm, kSampleRate, events);
+
+  CHECK(events.size() == 3);
+  for (int sparkleN = 0; sparkleN < 3; ++sparkleN)
+  {
+    const double expectedSeconds = 0.4 * std::pow(0.5, sparkleN);
+    CHECK(events[sparkleN].decaySamples == static_cast<int64_t>(std::llround(expectedSeconds * kSampleRate)));
+  }
+}
+
+TEST(SparkleGenerator_Envelope_SustainRmSmClampedTo01)
+{
+  // sustainRm/sustainSm can push the multiplied level above 1.0 or below 0.0 -- SparkleEvent must
+  // still carry a valid 0-1 level, same rationale as §7.6's pan clamp. Two rays so ray_n=1 actually
+  // exercises sustainRm (ray_n=0's exponent is always 1 regardless of base).
+  NoteMatrix matrix;
+  SparkleParams params;
+  params.nRays = 2;
+  params.nSparklesPerRay = 1;
+  params.rangeMin = 60;
+  params.rangeMax = 90;
+  params.wrapMode = WrapMode::Around;
+  params.rayInterval = 1;
+
+  params.sustain = 0.8;
+  params.sustainRm = 3.0; // ray 1: 0.8 * 3.0 = 2.4, would exceed 1.0 unclamped
+  std::vector<SparkleEvent> events;
+  SparkleGenerator::Generate(matrix, params, 60, kBpm, kSampleRate, events);
+  CHECK(events.size() == 2);
+  CHECK(ApproxEqual(events[0].sustainLevel, 0.8)); // ray 0: rm^0 = 1, unaffected
+  CHECK(events[1].sustainLevel == 1.0);            // ray 1: clamped down from 2.4
+
+  // -1.0 is outside kParamSustainRm's own IParam range (0.1-3, always positive) -- but Generate()
+  // itself doesn't enforce that, only the IParam does, so this still needs to clamp defensively.
+  params.sustainRm = -1.0;
+  events.clear();
+  SparkleGenerator::Generate(matrix, params, 60, kBpm, kSampleRate, events);
+  CHECK(events.size() == 2);
+  CHECK(ApproxEqual(events[0].sustainLevel, 0.8));
+  CHECK(events[1].sustainLevel == 0.0); // ray 1: 0.8 * (-1) = -0.8, clamped up to 0.0
+}

@@ -58,6 +58,14 @@ namespace sparkle_core
     int velocity = 0;
     int64_t durationSamples = 0;
     double pan = 0.0; // -1 = 100% L, +1 = 100% R (§7.6)
+
+    // Synth envelope (§7.7), resolved per (ray_n, sparkle_n) same as loudness/duration above.
+    // Only consumed by sparkle_core::SynthEngine when Output Mode includes Audio -- MIDI output
+    // has no use for these (a MIDI synth downstream supplies its own envelope).
+    int64_t attackSamples = 0;
+    int64_t decaySamples = 0;
+    double sustainLevel = 1.0; // 0-1
+    int64_t releaseSamples = 0;
   };
 
   // Uniform-[0,1) random source, used only by PanMode::Random (§7.6). Injected rather than
@@ -122,6 +130,28 @@ namespace sparkle_core
 
     RayRotation rayRotation = RayRotation::L;
     RayRotationMode rayRotationRm = RayRotationMode::Keep;
+
+    // Synth envelope (§7.7) -- only audible when Output Mode includes Audio (see
+    // core/SynthEngine.h), but resolved here unconditionally, same as every other per-sparkle
+    // property, so SparkleEvent always carries a complete envelope regardless of which output
+    // path(s) actually consume it. Attack/decay/release are plain seconds (no beats/ms toggle,
+    // unlike the §7.4 time-family params) -- keeping this one unit avoids doubling the param count
+    // for something that's a short percussive envelope, not a tempo-locked timing chain.
+    double attack = 0.005; // seconds
+    double attackRm = 1.0;
+    double attackSm = 1.0;
+
+    double decay = 0.15; // seconds
+    double decayRm = 1.0;
+    double decaySm = 1.0;
+
+    double sustain = 0.6; // level, 0-1
+    double sustainRm = 1.0;
+    double sustainSm = 1.0;
+
+    double release = 0.2; // seconds
+    double releaseRm = 1.0;
+    double releaseSm = 1.0;
   };
 
   class SparkleGenerator
@@ -226,6 +256,15 @@ namespace sparkle_core
           const double width = params.width * std::pow(params.widthRm, rayN) * std::pow(params.widthSm, sparkleN);
           const double phase = params.phase * std::pow(params.phaseRm, rayN) * std::pow(params.phaseSm, sparkleN);
           event.pan = Pan(params.panning, signForThisRay, width, phase, random);
+
+          const double attackSeconds = params.attack * std::pow(params.attackRm, rayN) * std::pow(params.attackSm, sparkleN);
+          const double decaySeconds = params.decay * std::pow(params.decayRm, rayN) * std::pow(params.decaySm, sparkleN);
+          const double releaseSeconds = params.release * std::pow(params.releaseRm, rayN) * std::pow(params.releaseSm, sparkleN);
+          event.attackSamples = std::max<int64_t>(0, static_cast<int64_t>(std::llround(std::max(0.0, attackSeconds) * sampleRate)));
+          event.decaySamples = std::max<int64_t>(0, static_cast<int64_t>(std::llround(std::max(0.0, decaySeconds) * sampleRate)));
+          event.releaseSamples = std::max<int64_t>(0, static_cast<int64_t>(std::llround(std::max(0.0, releaseSeconds) * sampleRate)));
+          event.sustainLevel = std::clamp(
+            params.sustain * std::pow(params.sustainRm, rayN) * std::pow(params.sustainSm, sparkleN), 0.0, 1.0);
 
           outEvents.push_back(event);
 

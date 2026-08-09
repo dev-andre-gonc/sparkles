@@ -44,8 +44,8 @@ namespace
   }
 
 #if IPLUG_EDITOR
-  // UI presentation table for every param in params/ParamList.h (minus the disabled panning block,
-  // which has no live IParams -- see that file's comment), grouped and labelled for mLayoutFunc.
+  // UI presentation table for every param in params/ParamList.h, grouped and labelled for
+  // mLayoutFunc.
   // This grouping is a presentation-layer decision independent of the DSP param table itself, so
   // it's hand-maintained here rather than macro-generated from ParamList.h -- same rationale as
   // params/ParamSnapshot.h's per-field mapping (see that file's header comment).
@@ -75,7 +75,23 @@ namespace
   };
 
   constexpr ParamCtrlDesc kOutputControls[] = {
-    { kParamGain, "Passthrough", EParamCtrlKind::Knob },
+    { kParamOutputMode, "Output",       EParamCtrlKind::Dropdown },
+    { kParamGain,       "Passthrough",  EParamCtrlKind::Knob },
+  };
+
+  constexpr ParamCtrlDesc kPanningControls[] = {
+    { kParamPanning,     "Panning",      EParamCtrlKind::Dropdown },
+    { kParamWidth,       "Width",        EParamCtrlKind::Knob },
+    { kParamPhase,       "Phase",        EParamCtrlKind::Knob },
+    { kParamRayRotation, "Ray Rotation", EParamCtrlKind::Dropdown },
+  };
+
+  constexpr ParamCtrlDesc kSynthControls[] = {
+    { kParamWaveShape, "Wave Shape", EParamCtrlKind::Knob },
+    { kParamAttack,    "Attack",     EParamCtrlKind::Knob },
+    { kParamDecay,     "Decay",      EParamCtrlKind::Knob },
+    { kParamSustain,   "Sustain",    EParamCtrlKind::Knob },
+    { kParamRelease,   "Release",    EParamCtrlKind::Knob },
   };
 
   constexpr ParamCtrlDesc kDetectionControls[] = {
@@ -139,6 +155,13 @@ namespace
     { kParamDelayRm,           "Delay",        EParamCtrlKind::Knob },
     { kParamRayIntervalRm,     "Ray Interval", EParamCtrlKind::Knob },
     { kParamIntervalRm,        "Interval",     EParamCtrlKind::Knob },
+    { kParamWidthRm,           "Width",        EParamCtrlKind::Knob },
+    { kParamPhaseRm,           "Phase",        EParamCtrlKind::Knob },
+    { kParamRayRotationRm,     "Ray Rotation", EParamCtrlKind::Dropdown },
+    { kParamAttackRm,          "Attack",       EParamCtrlKind::Knob },
+    { kParamDecayRm,           "Decay",        EParamCtrlKind::Knob },
+    { kParamSustainRm,         "Sustain",      EParamCtrlKind::Knob },
+    { kParamReleaseRm,         "Release",      EParamCtrlKind::Knob },
   };
 
   // §7.3/7.4/7.5's "_sm" params -- see the header comment above.
@@ -147,6 +170,12 @@ namespace
     { kParamDurationSm, "Duration", EParamCtrlKind::Knob },
     { kParamDelaySm,    "Delay",    EParamCtrlKind::Knob },
     { kParamIntervalSm, "Interval", EParamCtrlKind::Knob },
+    { kParamWidthSm,    "Width",    EParamCtrlKind::Knob },
+    { kParamPhaseSm,    "Phase",    EParamCtrlKind::Knob },
+    { kParamAttackSm,   "Attack",   EParamCtrlKind::Knob },
+    { kParamDecaySm,    "Decay",    EParamCtrlKind::Knob },
+    { kParamSustainSm,  "Sustain",  EParamCtrlKind::Knob },
+    { kParamReleaseSm,  "Release",  EParamCtrlKind::Knob },
   };
 
   constexpr ParamGroupDesc kParamGroups[] = {
@@ -158,6 +187,8 @@ namespace
     { "Sparkle Properties", kSparklePropertyControls,  (int) std::size(kSparklePropertyControls) },
     { "Timing Chain",       kTimingControls,           (int) std::size(kTimingControls), 2 },
     { "Pitch Chain",        kPitchControls,            (int) std::size(kPitchControls) },
+    { "Panning",            kPanningControls,          (int) std::size(kPanningControls) },
+    { "Synth Envelope",     kSynthControls,            (int) std::size(kSynthControls) },
     { "Ray Multipliers",    kRayMultiplierControls,    (int) std::size(kRayMultiplierControls) },
     { "Sparkle Multipliers",kSparkleMultiplierControls,(int) std::size(kSparkleMultiplierControls) },
   };
@@ -384,6 +415,7 @@ void Sparkles::OnReset()
 {
   mPitchTracker.Reset();
   ConfigurePitchTracker();
+  mSynthEngine.Reset();
   ShutUp();
   mBlockStartSample = 0;
   mEnvelope = 0.0;
@@ -401,7 +433,8 @@ void Sparkles::ProcessMidiMsg(const IMidiMsg& msg)
 
 void Sparkles::HandleMidiTrigger(const IMidiMsg& msg, int64_t triggerSample,
                                   const sparkle_core::DetectionParams& detection,
-                                  const sparkle_core::SparkleParams& sparkleParams, double bpm, double sampleRate)
+                                  const sparkle_core::SparkleParams& sparkleParams,
+                                  sparkle_core::OutputMode outputMode, double bpm, double sampleRate)
 {
   const int note = msg.NoteNumber();
   if (note < 0 || note >= (int) mHeldNoteVelocity.size())
@@ -435,14 +468,14 @@ void Sparkles::HandleMidiTrigger(const IMidiMsg& msg, int64_t triggerSample,
   if (isNoteOn) {
     const bool fireUp = triggerType == sparkle_core::TriggerType::Up || triggerType == sparkle_core::TriggerType::Both;
     if (fireUp && msg.Velocity() >= detection.minVelocity)
-      FireSprinkle(note, triggerSample, sparkleParams, bpm, sampleRate);
+      FireSprinkle(note, triggerSample, sparkleParams, outputMode, bpm, sampleRate);
   }
   else { // isNoteOff -- gate on the velocity the note was struck with, not the note-off's own byte.
     const int heldVelocity = mHeldNoteVelocity[note];
     mHeldNoteVelocity[note] = -1;
     const bool fireDown = triggerType == sparkle_core::TriggerType::Down || triggerType == sparkle_core::TriggerType::Both;
     if (fireDown && heldVelocity >= detection.minVelocity)
-      FireSprinkle(note, triggerSample, sparkleParams, bpm, sampleRate);
+      FireSprinkle(note, triggerSample, sparkleParams, outputMode, bpm, sampleRate);
   }
 }
 
@@ -474,6 +507,10 @@ void Sparkles::ShutUp()
   allNotesOffMsg.MakeControlChangeMsg(IMidiMsg::kAllNotesOff, 0.0);
   SendMidiMsg(allNotesOffMsg);
 
+  // Audio Output Mode's voices -- silenced immediately, matching the hard-stop spirit of the MIDI
+  // side above rather than fading through a release tail.
+  mSynthEngine.StopAll();
+
   mNumActiveSprinkles = 0;
 }
 
@@ -501,7 +538,7 @@ void Sparkles::ConfigurePitchTracker()
 }
 
 void Sparkles::FireSprinkle(int triggerNote, int64_t triggerSample, const sparkle_core::SparkleParams& params,
-                            double bpm, double sampleRate)
+                            sparkle_core::OutputMode outputMode, double bpm, double sampleRate)
 {
   mTriggerSender.PushData(ISenderData<1>(kCtrlTagTriggerLight, std::array<float, 1>{ 1.f }));
 
@@ -516,12 +553,23 @@ void Sparkles::FireSprinkle(int triggerNote, int64_t triggerSample, const sparkl
 
   sparkle_core::SparkleGenerator::Generate(mNoteMatrix, params, triggerNote, bpm, sampleRate, mScratchEvents);
 
+  const bool sendMidi = outputMode != sparkle_core::OutputMode::Audio;
+  const bool sendAudio = outputMode != sparkle_core::OutputMode::Midi;
+
   int64_t sprinkleEndSample = triggerSample;
   for (const auto& event : mScratchEvents) {
-    mEventScheduler.Schedule(
-      event.note, event.velocity, event.durationSamples, triggerSample + event.timeOffsetSamples);
-    sprinkleEndSample =
-      std::max(sprinkleEndSample, triggerSample + event.timeOffsetSamples + event.durationSamples);
+    const int64_t atSample = triggerSample + event.timeOffsetSamples;
+
+    if (sendMidi)
+      mEventScheduler.Schedule(event.note, event.velocity, event.durationSamples, atSample);
+
+    if (sendAudio) {
+      mSynthEngine.ScheduleVoice(event.note, event.velocity, event.pan, event.attackSamples,
+                                  event.decaySamples, event.sustainLevel, event.releaseSamples,
+                                  event.durationSamples, atSample);
+    }
+
+    sprinkleEndSample = std::max(sprinkleEndSample, atSample + event.durationSamples);
   }
 
   if (!mScratchEvents.empty())
@@ -563,7 +611,7 @@ void Sparkles::ProcessBlock(sample** inputs, sample** outputs, int nFrames)
       const IMidiMsg& msg = mMidiQueue.Peek();
       if (msg.mOffset > s)
         break;
-      HandleMidiTrigger(msg, blockStart + s, snapshot.detection, snapshot.sparkle, bpm, sampleRate);
+      HandleMidiTrigger(msg, blockStart + s, snapshot.detection, snapshot.sparkle, snapshot.outputMode, bpm, sampleRate);
       mMidiQueue.Remove();
     }
 
@@ -600,7 +648,7 @@ void Sparkles::ProcessBlock(sample** inputs, sample** outputs, int nFrames)
       if (mPitchTracker.HasConfidentNote() &&
           mPitchTracker.LastConfidentTime() + sparkle_core::PitchTracker::kHopSamples >= mTriggerArmTime) {
         mTriggerPending = false;
-        FireSprinkle(mPitchTracker.LastConfidentNote(), blockStart + s, snapshot.sparkle, bpm, sampleRate);
+        FireSprinkle(mPitchTracker.LastConfidentNote(), blockStart + s, snapshot.sparkle, snapshot.outputMode, bpm, sampleRate);
       }
       else if (mPitchTracker.Now() >= mTriggerDeadline) {
         mTriggerPending = false; // never got confident about the pitch -- drop the trigger silently
@@ -625,7 +673,7 @@ void Sparkles::ProcessBlock(sample** inputs, sample** outputs, int nFrames)
         // confidently playing just before the crossing) rather than analyzing post-crossing
         // audio. Nothing confident within the hold window means we don't know the note: drop.
         if (mPitchTracker.HasConfidentNote())
-          FireSprinkle(mPitchTracker.LastConfidentNote(), blockStart + s, snapshot.sparkle, bpm, sampleRate);
+          FireSprinkle(mPitchTracker.LastConfidentNote(), blockStart + s, snapshot.sparkle, snapshot.outputMode, bpm, sampleRate);
       }
       else if (fireUp) {
         // The note is just starting -- the analysis buffer is mid-transient, so defer to the
@@ -638,6 +686,23 @@ void Sparkles::ProcessBlock(sample** inputs, sample** outputs, int nFrames)
 
     for (int c = 0; c < nChans; c++) {
       outputs[c][s] = inputs[c][s] * gain;
+    }
+  }
+
+  // Audio Output Mode (§7.7): render every voice FireSprinkle scheduled into mSynthEngine this
+  // block, adding onto the dry passthrough already written above rather than replacing it. Skipped
+  // entirely in MIDI-only mode -- there are never any pending voices to drain in that case anyway
+  // (FireSprinkle never schedules them), but this also avoids the per-voice render loop's cost when
+  // it can't possibly have anything to do.
+  if (snapshot.outputMode != sparkle_core::OutputMode::Midi)
+    mSynthEngine.Render(blockStart, nFrames, sampleRate, snapshot.waveShape, outputs, nChans);
+
+  // Soft-clip safety net (see core/SynthEngine.h::SoftClip) on the final mix -- cheap insurance
+  // against overs when several simultaneous sparkles' synth voices (plus the dry passthrough) sum
+  // above unity, without audibly colouring normal-level signal.
+  for (int c = 0; c < nChans; c++) {
+    for (int s = 0; s < nFrames; s++) {
+      outputs[c][s] = static_cast<sample>(sparkle_core::SoftClip(outputs[c][s]));
     }
   }
 

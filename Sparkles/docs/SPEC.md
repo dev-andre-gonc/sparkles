@@ -6,7 +6,7 @@ Status: **design spec, not yet implemented**. This document describes the intend
 
 ## 1. Concept
 
-Audio comes into the plugin. No audio goes out — the plugin's only output is MIDI. Two analyses run continuously on the input signal:
+Audio comes into the plugin. **Output Mode** (`Audio` / `MIDI` / `Both`) selects where a fired sprinkle's notes go: out as MIDI (the plugin's original, still-default behavior), rendered directly by the plugin's own built-in synth (§7.7) into its audio output, or both at once. Two analyses run continuously on the input signal:
 
 - **Pitch detection** determines which note is currently being played (the **trigger note**).
 - **Envelope tracking** follows the input level. When the envelope crosses a **threshold** in the configured direction, it fires a **trigger** event carrying the current trigger note.
@@ -95,6 +95,7 @@ Governs what happens when the next note an ascending/descending ray walk would l
 
 | Param | Description |
 |---|---|
+| `output_mode` | `Audio` / `MIDI` / `Both` — where a fired sprinkle's notes go (§1). Default `MIDI`, matching the plugin's original (pre-synth) behavior. Independent of Detection Mode (§2), which governs the *input* trigger source rather than the output path. |
 | `n_rays` | Number of rays per sprinkle. |
 | `n_sparkles_per_ray` | Base number of sparkles per ray (fixed a typo from `n_sparkles_pray` in the original draft). |
 | `n_sparkles_per_ray_rm` | Ray multiplier on sparkle count: `n_sparkles(ray_n) = round(n_sparkles_per_ray * n_sparkles_per_ray_rm^ray_n)`, floored at 0 (a ray computing to 0 or fewer sparkles simply doesn't fire). |
@@ -194,6 +195,33 @@ pan(ray_n, sparkle_n) = clamp( sign(ray_n) * width(ray_n, sparkle_n) * Wave(pann
 - `triangle`: ramps linearly `-1 → 1` over `p ∈ [0, 0.5]`, then `1 → -1` over `p ∈ [0.5, 1]`.
 - `square`: `-1` over `p ∈ [0, 0.5)`, `+1` over `p ∈ [0.5, 1)`.
 - `saw`: ramps linearly `-1 → 1` over `p ∈ [0, 1)`, then jumps back to `-1`.
+
+Real per-sparkle stereo panning is only possible when `output_mode` includes `Audio` — MIDI has no true per-note pan (CC10 is a per-channel control, not per-voice), so in `MIDI`-only mode the pan values computed above are simply never applied to anything audible. The formulas themselves always run regardless of `output_mode`, same as every other per-sparkle property.
+
+### 7.7 Synth (Audio Output Mode)
+
+When `output_mode` includes `Audio`, each generated sparkle also spawns one voice in the plugin's own built-in synth, rendered directly into its stereo audio output (mixed additively with whatever dry input passthrough is already there) instead of — or alongside — being sent out as MIDI.
+
+| Param | Description |
+|---|---|
+| `wave_shape` | Continuous morph across the four classic waveforms: `0` = pure Sine, `1` = pure Triangle, `2` = pure Square, `3` = pure Saw, linearly crossfading the two neighboring shapes at fractional values (e.g. `1.5` = half Triangle/half Square). A single global control — unlike every other property in this section, it is **not** resolved per `(ray_n, sparkle_n)` and has no `_rm`/`_sm` modifiers. |
+| `attack`, `attack_rm`, `attack_sm` | Time (seconds) for a voice's amplitude to ramp linearly from 0 to its post-decay peak. Resolved per sparkle exactly like §7.3's `loudness`/`duration`: `attack(ray_n, sparkle_n) = attack * attack_rm^ray_n * attack_sm^sparkle_n`. |
+| `decay`, `decay_rm`, `decay_sm` | Time (seconds) for the amplitude to ramp linearly from its peak down to `sustain`'s level. Same resolution pattern as `attack`. |
+| `sustain`, `sustain_rm`, `sustain_sm` | Level (0–1) held for as long as the sparkle's gate (its own `duration`, §7.3) remains open. Resolved the same way, then clamped to `[0, 1]` (its `_rm`/`_sm` multipliers can otherwise push it outside that range). |
+| `release`, `release_rm`, `release_sm` | Time (seconds) for the amplitude to ramp linearly from wherever it was at gate-close down to 0. Same resolution pattern. |
+
+Unlike §7.4's `delay`/`ray_delay`/etc., attack/decay/release are plain seconds rather than a beats/ms/s `TimeParam` toggle — a deliberate simplification, since these describe a short percussive envelope shape rather than a tempo-locked timing chain.
+
+**Envelope shape.** A voice's envelope is entirely determined by its gate length (the sparkle's `duration`) and its resolved attack/decay/sustain/release — there's no separate "note off" the way MIDI has one, since a sparkle's lifetime is fixed at generation time:
+
+- While the gate is open: ramps 0→peak over `attack`, then peak→`sustain` over `decay`, then holds at `sustain` for whatever's left of the gate.
+- The instant the gate closes: release begins from *whatever level the envelope had actually reached* (continuous, no jump) and ramps to 0 over `release` — so a gate shorter than `attack + decay` releases early without a click, rather than waiting for attack/decay to finish first.
+
+**Panning.** §7.6's `panning`/`width`/`phase`/`ray_rotation` formulas apply directly to a voice's stereo position (constant-power pan law), since Audio Output Mode is exactly the case those params were designed for.
+
+**Polyphony.** Voices are drawn from a fixed-size pool (independent of MIDI, which has no such limit). Once the pool is full, spawning a new voice steals whichever currently-sounding voice is quietest at that instant (ties broken by oldest) — a deliberate, bounded-cost tradeoff to keep CPU load predictable regardless of how many sparkles are in flight, rather than growing polyphony without limit.
+
+**Output safety.** The final mixed output (dry passthrough + all synth voices) passes through a soft-clip safety net: identity at normal levels, asymptotically approaching ±1 only once the signal would otherwise clip — protecting against overs when many simultaneous sparkles' voices stack up, without audibly coloring normal-level signal. Not a user-facing param.
 
 ## 8. Presets
 

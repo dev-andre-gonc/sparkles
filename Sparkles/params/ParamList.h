@@ -42,6 +42,13 @@
 // signal (0-100%) -- it only controls how much of the dry input bleeds through to the output.
 SPARKLE_PARAM_DOUBLE(kParamGain, "Passthrough", 0., 0., 100., 0.01, "%")
 
+// What output path(s) a fired sprinkle's events go to. Default is MIDI-only, matching
+// pre-existing behavior (no synth existed before this param did) -- switching to Audio/Both opts
+// into core/SynthEngine.h rendering sparkles directly to the plugin's own audio output instead of
+// (or alongside) sending them out as MIDI. Same option order as Detection Mode below for a
+// consistent UI, even though the two are independent axes (input trigger source vs. output path).
+SPARKLE_PARAM_ENUM  (kParamOutputMode, "Output Mode", 1, "Audio", "MIDI", "Both")
+
 // --- §2 Detection stage ---------------------------------------------------------------------------
 // What input(s) can arm a trigger. Default is Audio-only, matching pre-existing behavior.
 SPARKLE_PARAM_ENUM  (kParamDetectionMode, "Detection Mode", 0, "Audio", "MIDI", "Both")
@@ -131,23 +138,49 @@ SPARKLE_PARAM_DOUBLE(kParamIntervalRm, "Interval Rm", 1., 0.1, 3., 0.01, "x")
 SPARKLE_PARAM_DOUBLE(kParamIntervalSm, "Interval Sm", -1., -3., 3., 0.01, "x")
 
 // --- §7.6 Panning ----------------------------------------------------------------------------------
-// Commented out rather than deleted: MIDI has no real per-note pan (CC10 is per-channel, not
-// per-voice), so there's no way to make this land well until a v2 with its own synth module can
-// apply pan directly to audio instead of faking it over MIDI. sparkle_core::SparkleGenerator's pan
-// computation (PanMode, width/phase/ray_rotation math, SparkleEvent::pan) is untouched and still
-// fully tested by tests/test_sparkle_generator.cpp -- only the exposed IParams are disabled, so
-// there's nothing live for a user to dial in that wouldn't do anything.
-// SPARKLE_PARAM_ENUM  (kParamPanning, "Panning", 2, "Mono", "Random", "Sine", "Triangle", "Square", "Saw")
-// SPARKLE_PARAM_DOUBLE(kParamWidth,   "Width", 1., 0., 2., 0.001, "")
-// SPARKLE_PARAM_DOUBLE(kParamWidthRm, "Width Rm", 1., 0.1, 3., 0.01, "x")
-// SPARKLE_PARAM_DOUBLE(kParamWidthSm, "Width Sm", 1., 0.1, 3., 0.01, "x")
-//
-// SPARKLE_PARAM_DOUBLE(kParamPhase,   "Phase", 0.25, 0., 1., 0.001, "")
-// SPARKLE_PARAM_DOUBLE(kParamPhaseRm, "Phase Rm", 1., 0.1, 3., 0.01, "x")
-// SPARKLE_PARAM_DOUBLE(kParamPhaseSm, "Phase Sm", 1.5, 0.1, 3., 0.01, "x")
-//
-// SPARKLE_PARAM_ENUM(kParamRayRotation,   "Ray Rotation", 0, "L", "R")
-// SPARKLE_PARAM_ENUM(kParamRayRotationRm, "Ray Rotation Rm", 1, "Keep", "Invert")
+// Re-enabled now that Output Mode (above) can route sparkles to core/SynthEngine.h, which applies
+// this directly to the rendered audio's stereo position. Still has no effect in MIDI-only Output
+// Mode -- MIDI has no real per-note pan (CC10 is per-channel, not per-voice) -- but
+// sparkle_core::SparkleGenerator's pan computation always runs regardless of Output Mode (same as
+// every other per-sparkle property), so there's no behavior difference to gate on here.
+SPARKLE_PARAM_ENUM  (kParamPanning, "Panning", 2, "Mono", "Random", "Sine", "Triangle", "Square", "Saw")
+SPARKLE_PARAM_DOUBLE(kParamWidth,   "Width", 1., 0., 2., 0.001, "")
+SPARKLE_PARAM_DOUBLE(kParamWidthRm, "Width Rm", 1., 0.1, 3., 0.01, "x")
+SPARKLE_PARAM_DOUBLE(kParamWidthSm, "Width Sm", 1., 0.1, 3., 0.01, "x")
+
+SPARKLE_PARAM_DOUBLE(kParamPhase,   "Phase", 0.25, 0., 1., 0.001, "")
+SPARKLE_PARAM_DOUBLE(kParamPhaseRm, "Phase Rm", 1., 0.1, 3., 0.01, "x")
+SPARKLE_PARAM_DOUBLE(kParamPhaseSm, "Phase Sm", 1.5, 0.1, 3., 0.01, "x")
+
+SPARKLE_PARAM_ENUM(kParamRayRotation,   "Ray Rotation", 0, "L", "R")
+SPARKLE_PARAM_ENUM(kParamRayRotationRm, "Ray Rotation Rm", 1, "Keep", "Invert")
+
+// --- §7.7 Synth (Audio Output Mode only) ------------------------------------------------------------
+// Continuous morph across the four classic waveforms: 0 = pure Sine, 1 = pure Triangle, 2 = pure
+// Square, 3 = pure Saw, linearly crossfading the two neighbouring shapes at fractional values (e.g.
+// 1.5 = half Triangle/half Square). One global knob -- unlike every other §7 property, this isn't
+// resolved per (ray_n, sparkle_n), so it has no _rm/_sm modifiers.
+SPARKLE_PARAM_DOUBLE(kParamWaveShape, "Wave Shape", 0., 0., 3., 0.001, "")
+
+// ADSR envelope applied per sparkle voice in core/SynthEngine.h. Attack/decay/release are plain
+// seconds -- deliberately not a beats/ms/s TimeParam like §7.4's delay family, since that would
+// double this section's param count for a short percussive envelope where tempo-relative timing
+// isn't the point. Sustain is a level (0-1), not a time.
+SPARKLE_PARAM_DOUBLE(kParamAttack,   "Attack", 0.005, 0.001, 5., 0.001, "s")
+SPARKLE_PARAM_DOUBLE(kParamAttackRm, "Attack Rm", 1., 0.1, 3., 0.01, "x")
+SPARKLE_PARAM_DOUBLE(kParamAttackSm, "Attack Sm", 1., 0.1, 3., 0.01, "x")
+
+SPARKLE_PARAM_DOUBLE(kParamDecay,   "Decay", 0.15, 0.001, 5., 0.001, "s")
+SPARKLE_PARAM_DOUBLE(kParamDecayRm, "Decay Rm", 1., 0.1, 3., 0.01, "x")
+SPARKLE_PARAM_DOUBLE(kParamDecaySm, "Decay Sm", 1., 0.1, 3., 0.01, "x")
+
+SPARKLE_PARAM_DOUBLE(kParamSustain,   "Sustain", 0.6, 0., 1., 0.001, "")
+SPARKLE_PARAM_DOUBLE(kParamSustainRm, "Sustain Rm", 1., 0.1, 3., 0.01, "x")
+SPARKLE_PARAM_DOUBLE(kParamSustainSm, "Sustain Sm", 1., 0.1, 3., 0.01, "x")
+
+SPARKLE_PARAM_DOUBLE(kParamRelease,   "Release", 0.2, 0.001, 5., 0.001, "s")
+SPARKLE_PARAM_DOUBLE(kParamReleaseRm, "Release Rm", 1., 0.1, 3., 0.01, "x")
+SPARKLE_PARAM_DOUBLE(kParamReleaseSm, "Release Sm", 1., 0.1, 3., 0.01, "x")
 
 // clang-format on
 

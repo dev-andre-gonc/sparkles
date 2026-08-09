@@ -4,6 +4,7 @@
 #include "core/DetectionParams.h"
 #include "core/NoteMatrix.h"
 #include "core/SparkleGenerator.h"
+#include "core/SynthEngine.h"
 
 // Reads every IParam defined in params/ParamList.h into a plain-data snapshot the (framework-free)
 // core/ generation code can consume, without core/ ever having to see an iPlug2 IParam.
@@ -31,6 +32,16 @@ namespace sparkle_params
   {
     sparkle_core::DetectionParams detection;
     sparkle_core::SparkleParams sparkle;
+
+    // Which output path(s) FireSprinkle routes generated events to (§7's Output Mode) -- governs
+    // both Sparkles::FireSprinkle (MIDI-schedule vs. synth-voice-schedule vs. both) and
+    // Sparkles::ProcessBlock (whether the synth engine renders this block at all). Not nested under
+    // `sparkle` above since sparkle_core::SparkleGenerator itself never reads it.
+    sparkle_core::OutputMode outputMode = sparkle_core::OutputMode::Midi;
+
+    // §7.7's global "Wave Shape" morph knob, consumed directly by sparkle_core::SynthEngine::Render
+    // -- not per (ray_n, sparkle_n) like everything nested under `sparkle`, so it lives here instead.
+    double waveShape = 0.0;
 
     // §5.1 quick-fill selectors. Not consumed by sparkle_core::SparkleGenerator itself (that
     // takes a NoteMatrix, not these), so they don't belong nested under `sparkle` above.
@@ -94,21 +105,36 @@ namespace sparkle_params
     s.intervalRm = plugin.GetParam(kParamIntervalRm)->Value();
     s.intervalSm = plugin.GetParam(kParamIntervalSm)->Value();
 
-    // Panning IParams are commented out in params/ParamList.h (no way to make MIDI-only panning
-    // land well until a v2 synth module exists) -- so their SparkleParams fields are left at
-    // whatever sparkle_core::SparkleParams's own defaults are (PanMode::Mono, width 0), not read
-    // from IParams here. See that file's §7.6 comment.
-    // s.panning = static_cast<sparkle_core::PanMode>(plugin.GetParam(kParamPanning)->Int());
-    // s.width = plugin.GetParam(kParamWidth)->Value();
-    // s.widthRm = plugin.GetParam(kParamWidthRm)->Value();
-    // s.widthSm = plugin.GetParam(kParamWidthSm)->Value();
-    //
-    // s.phase = plugin.GetParam(kParamPhase)->Value();
-    // s.phaseRm = plugin.GetParam(kParamPhaseRm)->Value();
-    // s.phaseSm = plugin.GetParam(kParamPhaseSm)->Value();
-    //
-    // s.rayRotation = static_cast<sparkle_core::RayRotation>(plugin.GetParam(kParamRayRotation)->Int());
-    // s.rayRotationRm = static_cast<sparkle_core::RayRotationMode>(plugin.GetParam(kParamRayRotationRm)->Int());
+    s.panning = static_cast<sparkle_core::PanMode>(plugin.GetParam(kParamPanning)->Int());
+    s.width = plugin.GetParam(kParamWidth)->Value();
+    s.widthRm = plugin.GetParam(kParamWidthRm)->Value();
+    s.widthSm = plugin.GetParam(kParamWidthSm)->Value();
+
+    s.phase = plugin.GetParam(kParamPhase)->Value();
+    s.phaseRm = plugin.GetParam(kParamPhaseRm)->Value();
+    s.phaseSm = plugin.GetParam(kParamPhaseSm)->Value();
+
+    s.rayRotation = static_cast<sparkle_core::RayRotation>(plugin.GetParam(kParamRayRotation)->Int());
+    s.rayRotationRm = static_cast<sparkle_core::RayRotationMode>(plugin.GetParam(kParamRayRotationRm)->Int());
+
+    s.attack = plugin.GetParam(kParamAttack)->Value();
+    s.attackRm = plugin.GetParam(kParamAttackRm)->Value();
+    s.attackSm = plugin.GetParam(kParamAttackSm)->Value();
+
+    s.decay = plugin.GetParam(kParamDecay)->Value();
+    s.decayRm = plugin.GetParam(kParamDecayRm)->Value();
+    s.decaySm = plugin.GetParam(kParamDecaySm)->Value();
+
+    s.sustain = plugin.GetParam(kParamSustain)->Value();
+    s.sustainRm = plugin.GetParam(kParamSustainRm)->Value();
+    s.sustainSm = plugin.GetParam(kParamSustainSm)->Value();
+
+    s.release = plugin.GetParam(kParamRelease)->Value();
+    s.releaseRm = plugin.GetParam(kParamReleaseRm)->Value();
+    s.releaseSm = plugin.GetParam(kParamReleaseSm)->Value();
+
+    snapshot.outputMode = static_cast<sparkle_core::OutputMode>(plugin.GetParam(kParamOutputMode)->Int());
+    snapshot.waveShape = plugin.GetParam(kParamWaveShape)->Value();
 
     snapshot.keyRoot = plugin.GetParam(kParamKeyRoot)->Int();
     snapshot.keyScale = static_cast<sparkle_core::Scale>(plugin.GetParam(kParamKeyScale)->Int());

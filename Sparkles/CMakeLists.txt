@@ -25,6 +25,7 @@ iplug_add_plugin(${PROJECT_NAME}
     core/NoteMatrix.h
     core/PitchTracker.h
     core/SparkleGenerator.h
+    core/SynthEngine.h
     params/ParamList.h
     params/ParamRanges.h
     params/ParamSnapshot.h
@@ -47,10 +48,12 @@ add_executable(sparkle_tests
   tests/test_sparkle_generator.cpp
   tests/test_event_scheduler.cpp
   tests/test_pitch_tracker.cpp
+  tests/test_synth_engine.cpp
   core/NoteMatrix.h
   core/PitchTracker.h
   core/SparkleGenerator.h
   core/EventScheduler.h
+  core/SynthEngine.h
 )
 target_compile_features(sparkle_tests PRIVATE cxx_std_17)
 

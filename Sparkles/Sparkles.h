@@ -7,6 +7,7 @@
 #include "core/NoteMatrix.h"
 #include "core/PitchTracker.h"
 #include "core/SparkleGenerator.h"
+#include "core/SynthEngine.h"
 #include "ISender.h"
 #include <array>
 #include <atomic>
@@ -78,7 +79,8 @@ private:
   // envelope crossings below do, then fires straight through FireSprinkle -- unlike the audio path,
   // the note is already known exactly, so there's no pitch tracker/confidence step to wait on.
   void HandleMidiTrigger(const IMidiMsg& msg, int64_t triggerSample, const sparkle_core::DetectionParams& detection,
-                          const sparkle_core::SparkleParams& sparkleParams, double bpm, double sampleRate);
+                          const sparkle_core::SparkleParams& sparkleParams, sparkle_core::OutputMode outputMode,
+                          double bpm, double sampleRate);
 
   // Incoming MIDI queued by ProcessMidiMsg (audio thread, called before ProcessBlock) and drained
   // sample-by-sample inside ProcessBlock's main loop, so a note-on/off lands on the same sample
@@ -114,7 +116,7 @@ private:
   // not "a sprinkle sounded", so an out-of-scale note still gets visible feedback that it was
   // heard and rejected by the matrix rather than looking like detection missed it entirely.
   void FireSprinkle(int triggerNote, int64_t triggerSample, const sparkle_core::SparkleParams& params,
-                    double bpm, double sampleRate);
+                    sparkle_core::OutputMode outputMode, double bpm, double sampleRate);
 
   // Set from the UI thread by the "Shut Up" button's action function (see mLayoutFunc), consumed
   // (and cleared) at the top of the next ProcessBlock call on the audio thread. A plain atomic
@@ -164,6 +166,11 @@ private:
   sparkle_core::NoteMatrix mNoteMatrix;
 
   sparkle_core::EventScheduler<> mEventScheduler;
+
+  // Audio Output Mode's voice pool (§7.7) -- fed alongside or instead of mEventScheduler above,
+  // depending on Output Mode, see FireSprinkle. Rendered directly into ProcessBlock's output
+  // buffer rather than sent as MIDI.
+  sparkle_core::SynthEngine<> mSynthEngine;
 
   // Scratch buffer for SparkleGenerator::Generate() output, reused block-to-block so its capacity
   // (reserved to SparkleGenerator::kMaxEventsPerTrigger on first use) doesn't need re-allocating
