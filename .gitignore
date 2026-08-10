@@ -1,9 +1,7 @@
 .DS_Store
 xcuserdata
 *.RPP-bak
-*/build-*/
-/build/
-**/build/
+**/build*/
 *.ipch
 *.db
 *.suo

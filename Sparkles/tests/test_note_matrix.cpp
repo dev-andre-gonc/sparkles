@@ -279,3 +279,33 @@ TEST(NoteMatrix_ApplyKeyScalePerColumn_DoesNotTouchTheEnabledGate)
   CHECK(matrix.IsColumnEnabled(kC) == false);
   CHECK(matrix.IsRowEnabled(kD) == false);
 }
+
+TEST(NoteMatrix_Walk_TwoNoteOverload_ColumnAndAnchorAreIndependent)
+{
+  // Two-note Walk() overload (Sparkles' §7.2 Pre Interval): `columnNote` picks which column's
+  // eligibility rules apply, `anchorNote` only picks where `steps` starts counting from -- they
+  // can disagree, and the column note's own column must be the one consulted.
+  NoteMatrix matrix;
+  matrix.SetColumnEnabled(PitchClassOf(67) /* G */, false);
+
+  // anchorNote=67 (G) would be dead if its own column were consulted -- but columnNote=60 (C) is
+  // enabled, so the walk succeeds and steps from G4's position in C4's own eligible list.
+  CHECK(matrix.Walk(/*columnNote=*/60, /*anchorNote=*/67, /*steps=*/0, 60, 71, WrapMode::Stop) == 67);
+
+  // Disabling the column note's own column still kills it, regardless of anchorNote.
+  matrix.SetColumnEnabled(PitchClassOf(60) /* C */, false);
+  CHECK(matrix.Walk(/*columnNote=*/60, /*anchorNote=*/67, /*steps=*/0, 60, 71, WrapMode::Stop) == std::nullopt);
+}
+
+TEST(NoteMatrix_Walk_TwoNoteOverload_MatchesSingleNoteOverloadWhenSame)
+{
+  // The single-note Walk() is exactly the two-note overload called with columnNote==anchorNote --
+  // covering both here guards against the shim and the real implementation drifting apart.
+  NoteMatrix matrix;
+  for (int row = 0; row < kNumPitchClasses; ++row)
+    if (row != PitchClassOf(kStartNote)) matrix.SetRowEnabled(row, false);
+
+  for (int steps = -3; steps <= 3; ++steps)
+    CHECK(matrix.Walk(kStartNote, steps, kRangeMin, kRangeMax, WrapMode::Around) ==
+          matrix.Walk(kStartNote, kStartNote, steps, kRangeMin, kRangeMax, WrapMode::Around));
+}

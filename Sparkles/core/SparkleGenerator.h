@@ -91,6 +91,9 @@ namespace sparkle_core
 
     // Trigger-to-sprinkle offset (§7.2) -- no _rm/_sm, applied once ahead of the ray/sparkle chains.
     TimeParam preDelay;
+    // Absolute semitone transpose of the sprinkle's starting point (see Generate()'s
+    // `anchorNote`) -- unlike rayInterval/interval below, NOT a step into the trigger note's
+    // eligible-notes list, and does NOT change which matrix column governs eligibility.
     int preInterval = 0;
 
     // Base per-sparkle properties, evaluated directly (§7.3)
@@ -124,6 +127,9 @@ namespace sparkle_core
     double widthRm = 1.0;
     double widthSm = 1.0;
 
+    // Combines additively with phaseRm/phaseSm (phase + phaseRm*rayN + phaseSm*sparkleN, see
+    // Generate()), unlike every other _rm/_sm pair in this struct -- their defaults are step
+    // sizes, not multiplier identities, so 0 (not 1) means "no per-ray/per-sparkle change".
     double phase = 0.0;
     double phaseRm = 1.0;
     double phaseSm = 1.0;
@@ -134,14 +140,15 @@ namespace sparkle_core
     // Synth envelope (§7.7) -- only audible when Output Mode includes Audio (see
     // core/SynthEngine.h), but resolved here unconditionally, same as every other per-sparkle
     // property, so SparkleEvent always carries a complete envelope regardless of which output
-    // path(s) actually consume it. Attack/decay/release are plain seconds (no beats/ms toggle,
-    // unlike the §7.4 time-family params) -- keeping this one unit avoids doubling the param count
-    // for something that's a short percussive envelope, not a tempo-locked timing chain.
-    double attack = 0.005; // seconds
+    // path(s) actually consume it. Attack/decay/release are plain milliseconds (no beats/ms
+    // toggle, unlike the §7.4 time-family params) -- keeping this one unit avoids doubling the
+    // param count for something that's a short percussive envelope, not a tempo-locked timing
+    // chain; converted to seconds once in Generate() right before the sample conversion.
+    double attack = 5.0; // ms
     double attackRm = 1.0;
     double attackSm = 1.0;
 
-    double decay = 0.15; // seconds
+    double decay = 5.0; // ms
     double decayRm = 1.0;
     double decaySm = 1.0;
 
@@ -149,7 +156,7 @@ namespace sparkle_core
     double sustainRm = 1.0;
     double sustainSm = 1.0;
 
-    double release = 0.2; // seconds
+    double release = 15.0; // ms
     double releaseRm = 1.0;
     double releaseSm = 1.0;
   };
@@ -204,6 +211,13 @@ namespace sparkle_core
 
       const double preDelaySamples = ToSamples(params.preDelay, bpm, sampleRate);
 
+      // §7.2: Pre Interval is an absolute chromatic transpose (in real semitones, unlike Ray
+      // Interval/Interval below which step through the eligible-notes list) of the sprinkle's
+      // starting point -- NOT of which matrix column governs eligibility. `anchorNote` is passed
+      // as the two-note Walk() overload's `anchorNote` arg below, so it only shifts where `steps`
+      // counts from; `triggerNote` itself still supplies the column (see NoteMatrix::Walk).
+      const int anchorNote = triggerNote + params.preInterval;
+
       double rayDelayAccumSamples = 0.0; // Sigma (ray_delay * ray_delay_rm^i) for i = 0..rayN
       double rayIntervalAccum = 0.0;     // Sigma (ray_interval * ray_interval_rm^i) for i = 0..rayN
 
@@ -219,7 +233,7 @@ namespace sparkle_core
         rayIntervalAccum += params.rayInterval * std::pow(params.rayIntervalRm, rayN);
 
         const double rayStartSamples = preDelaySamples + rayDelayAccumSamples;
-        const double rayIntervalOffset = params.preInterval + rayIntervalAccum;
+        const double rayIntervalOffset = rayIntervalAccum;
 
         const int numSparkles = NumSparklesForRay(params, rayN);
         const double signForThisRay = raySign;
@@ -237,7 +251,7 @@ namespace sparkle_core
           const double rawSteps = rayIntervalOffset + withinRayIntervalAccum;
           const int steps = static_cast<int>(std::lround(rawSteps));
 
-          const auto note = matrix.Walk(triggerNote, steps, params.rangeMin, params.rangeMax, params.wrapMode);
+          const auto note = matrix.Walk(triggerNote, anchorNote, steps, params.rangeMin, params.rangeMax, params.wrapMode);
           if (!note.has_value())
             break; // wrap_mode=stop past a boundary, or the trigger's column has no eligible notes at all
 
@@ -254,12 +268,19 @@ namespace sparkle_core
           event.durationSamples = std::max<int64_t>(0, static_cast<int64_t>(std::llround(durationSamples)));
 
           const double width = params.width * std::pow(params.widthRm, rayN) * std::pow(params.widthSm, sparkleN);
-          const double phase = params.phase * std::pow(params.phaseRm, rayN) * std::pow(params.phaseSm, sparkleN);
+          // Phase's _rm/_sm combine ADDITIVELY, unlike every other property here -- a per-ray/
+          // per-sparkle rotation offset reads far more usefully than an exponential multiplier
+          // would on a cyclic 0-1 quantity. Any value pushed outside [0,1) wraps to its decimal
+          // part naturally via Wave()'s own `frac = p - floor(p)`, so no explicit wrap is needed
+          // here (e.g. 5.3 -> 0.3, including for negative sums).
+          const double phase = params.phase + params.phaseRm * rayN + params.phaseSm * sparkleN;
           event.pan = Pan(params.panning, signForThisRay, width, phase, random);
 
-          const double attackSeconds = params.attack * std::pow(params.attackRm, rayN) * std::pow(params.attackSm, sparkleN);
-          const double decaySeconds = params.decay * std::pow(params.decayRm, rayN) * std::pow(params.decaySm, sparkleN);
-          const double releaseSeconds = params.release * std::pow(params.releaseRm, rayN) * std::pow(params.releaseSm, sparkleN);
+          // attack/decay/release are resolved in milliseconds (§7.7); converted to seconds here,
+          // once, right before the sample conversion below.
+          const double attackSeconds = (params.attack * std::pow(params.attackRm, rayN) * std::pow(params.attackSm, sparkleN)) * 0.001;
+          const double decaySeconds = (params.decay * std::pow(params.decayRm, rayN) * std::pow(params.decaySm, sparkleN)) * 0.001;
+          const double releaseSeconds = (params.release * std::pow(params.releaseRm, rayN) * std::pow(params.releaseSm, sparkleN)) * 0.001;
           event.attackSamples = std::max<int64_t>(0, static_cast<int64_t>(std::llround(std::max(0.0, attackSeconds) * sampleRate)));
           event.decaySamples = std::max<int64_t>(0, static_cast<int64_t>(std::llround(std::max(0.0, decaySeconds) * sampleRate)));
           event.releaseSamples = std::max<int64_t>(0, static_cast<int64_t>(std::llround(std::max(0.0, releaseSeconds) * sampleRate)));

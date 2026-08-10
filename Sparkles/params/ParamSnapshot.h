@@ -63,9 +63,9 @@ namespace sparkle_params
 
     sparkle_core::DetectionParams& d = snapshot.detection;
     d.detectionMode = static_cast<sparkle_core::DetectionMode>(plugin.GetParam(kParamDetectionMode)->Int());
-    d.triggerType = static_cast<sparkle_core::TriggerType>(plugin.GetParam(kParamTriggerType)->Int());
+    d.triggerType = static_cast<sparkle_core::TriggerType>(plugin.GetParam(kParamTriggerOn)->Int());
     d.threshold = plugin.GetParam(kParamThreshold)->Value() / 100.;
-    d.minVelocity = plugin.GetParam(kParamMinVelocity)->Int();
+    d.minVelocity = plugin.GetParam(kParamVelocityDetect)->Int();
     d.reactiveness = plugin.GetParam(kParamReactiveness)->Value();
     d.confidence = plugin.GetParam(kParamConfidence)->Value();
     d.detectNoteMin = plugin.GetParam(kParamMinNote)->Int();
@@ -83,7 +83,7 @@ namespace sparkle_params
     s.preDelay = ReadTimeParam(plugin, kParamPreDelay, kParamPreDelayUnit);
     s.preInterval = plugin.GetParam(kParamPreInterval)->Int();
 
-    s.loudness = plugin.GetParam(kParamLoudness)->Value();
+    s.loudness = plugin.GetParam(kParamVelocity)->Value();
     s.loudnessRm = plugin.GetParam(kParamLoudnessRm)->Value();
     s.loudnessSm = plugin.GetParam(kParamLoudnessSm)->Value();
 

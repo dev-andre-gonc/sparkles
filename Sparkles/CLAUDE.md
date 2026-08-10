@@ -38,6 +38,8 @@ Forgetting step 3 is the common mistake: the control will appear correctly at st
 
 Controls that are not tagged (e.g. the panel background, corner resizer) are handled via their dedicated accessors or don't need repositioning.
 
+This checklist is for hand-placed controls (the visual-indicator panel, the note matrix, Key Root/Scale, etc. — each with its own named `ECtrlTag`). A new **param** control usually doesn't need any of this: add it to the right group's array in `Sparkles.cpp`'s `kParamGroups` (as a `ParamClusterDesc` — set `rmParamIdx`/`smParamIdx` too if it has `_Rm`/`_Sm` multipliers, which render smaller and beside the base control automatically) and `mLayoutFunc`'s flow-layout assigns it a tag from `kCtrlTagFirstParamControl` at runtime, in both branches, for free.
+
 ## Files of interest
 
 - `Sparkles.cpp` / `.h` — plugin class, parameters (`EParams`), control tags (`ECtrlTags`), `ProcessBlock`, `mLayoutFunc`.

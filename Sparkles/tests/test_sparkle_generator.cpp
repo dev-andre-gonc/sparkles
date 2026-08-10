@@ -524,9 +524,9 @@ TEST(SparkleGenerator_Panning_WidthDecayPerSparkle)
 
 TEST(SparkleGenerator_Panning_PhaseSm_DirectFormula)
 {
-  // phase(ray_n, sparkle_n) = phase * phase_rm^ray_n * phase_sm^sparkle_n, evaluated directly.
-  // Triangle wave makes the resulting values easy to hand-check: Wave(triangle, p) = -1 + 4*p for
-  // p <= 0.5.
+  // phase(ray_n, sparkle_n) = phase + phase_rm*ray_n + phase_sm*sparkle_n -- Phase's modifiers
+  // combine ADDITIVELY (unlike every other _rm/_sm pair), evaluated directly. Triangle wave makes
+  // the resulting values easy to hand-check: Wave(triangle, p) = -1 + 4*p for p <= 0.5.
   NoteMatrix matrix;
   SparkleParams params;
   params.nRays = 1;
@@ -538,17 +538,41 @@ TEST(SparkleGenerator_Panning_PhaseSm_DirectFormula)
   params.interval = 1;
   params.panning = PanMode::Triangle;
   params.phase = 0.1;
-  params.phaseSm = 2.0;
+  params.phaseSm = 0.15;
   params.width = 1.0;
 
   std::vector<SparkleEvent> events;
   SparkleGenerator::Generate(matrix, params, 60, kBpm, kSampleRate, events);
 
   CHECK(events.size() == 3);
-  // phase: 0.1, 0.2, 0.4 -> Wave: -0.6, -0.2, 0.6
+  // phase: 0.1, 0.25, 0.40 -> Wave: -0.6, 0.0, 0.6
   CHECK(ApproxEqual(events[0].pan, -0.6));
-  CHECK(ApproxEqual(events[1].pan, -0.2));
+  CHECK(ApproxEqual(events[1].pan, 0.0));
   CHECK(ApproxEqual(events[2].pan, 0.6));
+}
+
+TEST(SparkleGenerator_Panning_Phase_AdditiveWrapsToDecimal)
+{
+  // Pushing phase past 1 via phase_rm should wrap to just the decimal part (e.g. 0.2 + 5*1.02 =
+  // 5.3 -> 0.3), not multiply -- the additive-combination behavior itself, isolated from Sm.
+  NoteMatrix matrix;
+  SparkleParams params;
+  params.nRays = 6;
+  params.nSparklesPerRay = 1;
+  params.rangeMin = 60;
+  params.rangeMax = 90;
+  params.wrapMode = WrapMode::Around;
+  params.panning = PanMode::Saw; // Wave(saw, p) = -1 + 2*p, easy to hand-check
+  params.phase = 0.2;
+  params.phaseRm = 1.02;
+  params.width = 1.0;
+
+  std::vector<SparkleEvent> events;
+  SparkleGenerator::Generate(matrix, params, 60, kBpm, kSampleRate, events);
+
+  CHECK(events.size() == 6);
+  // ray 5: phase = 0.2 + 1.02*5 = 5.3 -> frac 0.3 -> Wave(saw, 0.3) = -0.4
+  CHECK(ApproxEqual(events[5].pan, -0.4));
 }
 
 TEST(SparkleGenerator_NoteMatrix_RestrictsGeneratedPitchClasses)
@@ -603,6 +627,76 @@ TEST(SparkleGenerator_NoteMatrix_DisabledTriggerColumnKillsSprinkle)
   CHECK(events.empty());
 }
 
+TEST(SparkleGenerator_PreInterval_TransposesAnchorNoteAbsolutely)
+{
+  // Pre Interval is an absolute semitone transpose of the trigger note, not another step into the
+  // eligible-notes list (§7.2) -- with interval=rayInterval=0 (steps=0, i.e. "the anchor note
+  // itself"), the generated note should be exactly triggerNote + preInterval.
+  NoteMatrix matrix;
+  SparkleParams params;
+  params.nRays = 1;
+  params.nSparklesPerRay = 1;
+  params.rangeMin = 0;
+  params.rangeMax = 127;
+  params.wrapMode = WrapMode::Around;
+  params.interval = 0;
+  params.rayInterval = 0;
+  params.preInterval = 5;
+
+  std::vector<SparkleEvent> events;
+  SparkleGenerator::Generate(matrix, params, 60, kBpm, kSampleRate, events);
+
+  CHECK(events.size() == 1);
+  CHECK(events[0].note == 65);
+}
+
+TEST(SparkleGenerator_PreInterval_DoesNotShiftWhichMatrixColumnGoverns)
+{
+  // Pre Interval shifts only the sprinkle's starting point -- the trigger note's own column still
+  // governs eligibility. Disabling that column must kill the sprinkle regardless of Pre Interval.
+  NoteMatrix matrix;
+  matrix.SetColumnEnabled(PitchClassOf(60), false); // trigger note's own column disabled
+
+  SparkleParams params;
+  params.nRays = 1;
+  params.nSparklesPerRay = 1;
+  params.rangeMin = 0;
+  params.rangeMax = 127;
+  params.wrapMode = WrapMode::Around;
+  params.interval = 0;
+  params.rayInterval = 0;
+  params.preInterval = 7; // a fifth up -- would land on an enabled column if columns shifted
+
+  std::vector<SparkleEvent> events;
+  SparkleGenerator::Generate(matrix, params, 60, kBpm, kSampleRate, events);
+  CHECK(events.empty());
+}
+
+TEST(SparkleGenerator_PreInterval_AnchorsWithinTriggerColumnsOwnEligibleList)
+{
+  // Pre Interval's semitone shift picks the starting point from the TRIGGER note's own eligible
+  // list, not one rebuilt around the shifted note's column -- disabling G's column (67's column)
+  // shouldn't stop a C4 (60) trigger shifted by Pre Interval=7 from landing on G4 (67): that note
+  // is reached by walking C4's own (fully-eligible) list, never by consulting G's column.
+  NoteMatrix matrix;
+  matrix.SetColumnEnabled(PitchClassOf(67), false); // G's column disabled; C's (60) stays enabled
+
+  SparkleParams params;
+  params.nRays = 1;
+  params.nSparklesPerRay = 1;
+  params.rangeMin = 0;
+  params.rangeMax = 127;
+  params.wrapMode = WrapMode::Around;
+  params.interval = 0;
+  params.rayInterval = 0;
+  params.preInterval = 7;
+
+  std::vector<SparkleEvent> events;
+  SparkleGenerator::Generate(matrix, params, 60, kBpm, kSampleRate, events);
+  CHECK(events.size() == 1);
+  CHECK(events[0].note == 67);
+}
+
 TEST(SparkleGenerator_Panning_Random_UsesInjectedSourceAndOnlyWidth)
 {
   // "random uses only the width params" (§7.6) -- ray_rotation is deliberately set to R here to
@@ -643,9 +737,10 @@ TEST(SparkleGenerator_Envelope_DefaultsMatchStructDefaults)
   SparkleGenerator::Generate(matrix, params, 60, kBpm, kSampleRate, events);
 
   CHECK(events.size() == 1);
-  CHECK(events[0].attackSamples == static_cast<int64_t>(std::llround(params.attack * kSampleRate)));
-  CHECK(events[0].decaySamples == static_cast<int64_t>(std::llround(params.decay * kSampleRate)));
-  CHECK(events[0].releaseSamples == static_cast<int64_t>(std::llround(params.release * kSampleRate)));
+  // attack/decay/release are resolved in milliseconds (§7.7).
+  CHECK(events[0].attackSamples == static_cast<int64_t>(std::llround(params.attack * 0.001 * kSampleRate)));
+  CHECK(events[0].decaySamples == static_cast<int64_t>(std::llround(params.decay * 0.001 * kSampleRate)));
+  CHECK(events[0].releaseSamples == static_cast<int64_t>(std::llround(params.release * 0.001 * kSampleRate)));
   CHECK(ApproxEqual(events[0].sustainLevel, params.sustain));
 }
 
@@ -662,9 +757,9 @@ TEST(SparkleGenerator_Envelope_RmAppliesPerRay)
   params.wrapMode = WrapMode::Around;
   params.rayInterval = 1;
   params.interval = 1;
-  params.attack = 0.1;
+  params.attack = 100.0; // ms
   params.attackRm = 2.0; // doubles every ray
-  params.release = 0.2;
+  params.release = 200.0; // ms
   params.releaseRm = 0.5; // halves every ray
 
   std::vector<SparkleEvent> events;
@@ -691,7 +786,7 @@ TEST(SparkleGenerator_Envelope_SmAppliesPerSparkleWithinRay)
   params.wrapMode = WrapMode::Around;
   params.rayInterval = 1;
   params.interval = 1;
-  params.decay = 0.4;
+  params.decay = 400.0; // ms
   params.decaySm = 0.5; // halves every sparkle within the ray
 
   std::vector<SparkleEvent> events;

@@ -44,7 +44,8 @@ namespace
   }
 
 #if IPLUG_EDITOR
-  // UI presentation table for every param in params/ParamList.h, grouped and labelled for
+  // UI presentation table for every param in params/ParamList.h (except Key Root/Key Scale, which
+  // are hand-placed beside the note matrix -- see mLayoutFunc), grouped/labelled/clustered for
   // mLayoutFunc.
   // This grouping is a presentation-layer decision independent of the DSP param table itself, so
   // it's hand-maintained here rather than macro-generated from ParamList.h -- same rationale as
@@ -52,145 +53,104 @@ namespace
   //
   // Every §7 "chain" section in ParamList.h (structure/properties/timing/pitch) has a base param
   // plus one or two "_rm"/"_sm" multipliers (see docs/SPEC.md §7.3-7.5: `_rm` scales the value per
-  // ray, `_sm` scales it per sparkle within a ray). Rather than keep each multiplier tucked next to
-  // its base param (which forced every label to spell out "X Rm"/"X Sm" to stay unambiguous), all
-  // `_rm` params live in one "Ray Multipliers" group and all `_sm` params in one "Sparkle
-  // Multipliers" group -- the group name says "multiplier" once, so each control just needs its
-  // base param's short name.
-  enum class EParamCtrlKind { Knob, Dropdown };
+  // ray, `_sm` scales it per sparkle within a ray). Each base param and its multiplier(s) form one
+  // visual cluster -- base control at normal size, its Rm/Sm as smaller controls immediately beside
+  // it -- living in the same functional group as the base (not a separate "multipliers" group), so
+  // each modifier's short label doesn't need to repeat which property it's modifying.
+  enum class EParamCtrlKind { Knob, Dropdown, TimeKnob };
 
-  struct ParamCtrlDesc
+  struct ParamClusterDesc
   {
     int paramIdx;
     const char* label;
     EParamCtrlKind kind;
+    int unitParamIdx = -1;                          // TimeKnob only: sibling *Unit enum param
+    int rmParamIdx = -1;
+    EParamCtrlKind rmKind = EParamCtrlKind::Knob;
+    int smParamIdx = -1;                             // Sm is always the same kind as the base
   };
 
   struct ParamGroupDesc
   {
     const char* name;
-    const ParamCtrlDesc* controls;
-    int numControls;
-    int preferredCols = 0; // 0 = auto (min(numControls, 3)); set explicitly where pairing matters
+    const ParamClusterDesc* clusters;
+    int numClusters;
+    int preferredCols = 0; // 0 = auto (min(numClusters, 3)); set explicitly where pairing matters
   };
 
-  constexpr ParamCtrlDesc kOutputControls[] = {
-    { kParamOutputMode, "Output",       EParamCtrlKind::Dropdown },
-    { kParamGain,       "Passthrough",  EParamCtrlKind::Knob },
+  constexpr ParamClusterDesc kGeneralControls[] = {
+    { kParamOutputMode,     "Output",       EParamCtrlKind::Dropdown },
+    { kParamGain,           "Passthrough",  EParamCtrlKind::Knob },
+    { kParamDetectionMode,  "Detect",       EParamCtrlKind::Dropdown },
+    { kParamTriggerOn,      "Trigger On",   EParamCtrlKind::Dropdown },
+    { kParamThreshold,      "Threshold",    EParamCtrlKind::Knob },
+    { kParamVelocityDetect, "Min Velocity", EParamCtrlKind::Knob },
   };
 
-  constexpr ParamCtrlDesc kPanningControls[] = {
-    { kParamPanning,     "Panning",      EParamCtrlKind::Dropdown },
-    { kParamWidth,       "Width",        EParamCtrlKind::Knob },
-    { kParamPhase,       "Phase",        EParamCtrlKind::Knob },
-    { kParamRayRotation, "Ray Rotation", EParamCtrlKind::Dropdown },
+  constexpr ParamClusterDesc kTechnicalControls[] = {
+    { kParamReactiveness, "Env Reactiveness", EParamCtrlKind::Knob },
+    { kParamConfidence,   "Note Confidence",  EParamCtrlKind::Knob },
+    { kParamMinNote,      "Min Note",         EParamCtrlKind::Knob },
+    { kParamMaxNote,      "Max Note",         EParamCtrlKind::Knob },
   };
 
-  constexpr ParamCtrlDesc kSynthControls[] = {
-    { kParamWaveShape, "Wave Shape", EParamCtrlKind::Knob },
-    { kParamAttack,    "Attack",     EParamCtrlKind::Knob },
-    { kParamDecay,     "Decay",      EParamCtrlKind::Knob },
-    { kParamSustain,   "Sustain",    EParamCtrlKind::Knob },
-    { kParamRelease,   "Release",    EParamCtrlKind::Knob },
-  };
-
-  constexpr ParamCtrlDesc kDetectionControls[] = {
-    { kParamDetectionMode,"Detect",       EParamCtrlKind::Dropdown },
-    { kParamTriggerType,  "Trigger",      EParamCtrlKind::Dropdown },
-    { kParamThreshold,    "Threshold",    EParamCtrlKind::Knob },
-    { kParamMinVelocity,  "Min Velocity", EParamCtrlKind::Knob },
-    { kParamReactiveness, "Reactiveness", EParamCtrlKind::Knob },
-    { kParamConfidence,   "Confidence",   EParamCtrlKind::Knob },
-    { kParamMinNote,      "Min Note",     EParamCtrlKind::Knob },
-    { kParamMaxNote,      "Max Note",     EParamCtrlKind::Knob },
-  };
-
-  constexpr ParamCtrlDesc kKeyScaleControls[] = {
-    { kParamKeyRoot,  "Root",  EParamCtrlKind::Dropdown },
-    { kParamKeyScale, "Scale", EParamCtrlKind::Dropdown },
-  };
-
-  constexpr ParamCtrlDesc kStructureControls[] = {
+  constexpr ParamClusterDesc kSprinkleStructureControls[] = {
     { kParamNRays,           "Rays",         EParamCtrlKind::Knob },
-    { kParamNSparklesPerRay, "Sparkles/Ray", EParamCtrlKind::Knob },
+    { kParamNSparklesPerRay, "Sparkles/Ray", EParamCtrlKind::Knob, -1, kParamNSparklesPerRayRm },
     { kParamRangeMin,        "Range Min",    EParamCtrlKind::Knob },
     { kParamRangeMax,        "Range Max",    EParamCtrlKind::Knob },
     { kParamWrapMode,        "Wrap",         EParamCtrlKind::Dropdown },
   };
 
-  constexpr ParamCtrlDesc kOffsetControls[] = {
-    { kParamPreDelay,     "Pre Delay",    EParamCtrlKind::Knob },
+  constexpr ParamClusterDesc kOffsetControls[] = {
+    { kParamPreDelay,     "Pre Delay",    EParamCtrlKind::TimeKnob, kParamPreDelayUnit },
     { kParamPreDelayUnit, "Delay Unit",   EParamCtrlKind::Dropdown },
     { kParamPreInterval,  "Pre Interval", EParamCtrlKind::Knob },
   };
 
-  constexpr ParamCtrlDesc kSparklePropertyControls[] = {
-    { kParamLoudness,     "Velocity",     EParamCtrlKind::Knob },
-    { kParamDuration,     "Duration",     EParamCtrlKind::Knob },
-    { kParamDurationUnit, "Duration Unit",EParamCtrlKind::Dropdown },
+  constexpr ParamClusterDesc kSparklePropertyControls[] = {
+    { kParamVelocity,     "Velocity",      EParamCtrlKind::Knob, -1, kParamLoudnessRm, EParamCtrlKind::Knob, kParamLoudnessSm },
+    { kParamDuration,     "Duration",      EParamCtrlKind::TimeKnob, kParamDurationUnit, kParamDurationRm, EParamCtrlKind::Knob, kParamDurationSm },
+    { kParamDurationUnit, "Duration Unit", EParamCtrlKind::Dropdown },
   };
 
-  // Two Rate-Delay-Unit pairs in one group -- kTimingGroupCols below forces a 2-column sub-grid so
-  // each unit dropdown sits directly under its own delay knob instead of getting shuffled apart by
-  // the default 3-column packing.
-  constexpr ParamCtrlDesc kTimingControls[] = {
-    { kParamRayDelay,     "Ray Delay",      EParamCtrlKind::Knob },
+  constexpr ParamClusterDesc kTimingControls[] = {
+    { kParamRayDelay,     "Ray Delay",      EParamCtrlKind::TimeKnob, kParamRayDelayUnit, kParamRayDelayRm },
     { kParamRayDelayUnit, "Ray Delay Unit", EParamCtrlKind::Dropdown },
-    { kParamDelay,        "Delay",          EParamCtrlKind::Knob },
+    { kParamDelay,        "Delay",          EParamCtrlKind::TimeKnob, kParamDelayUnit, kParamDelayRm, EParamCtrlKind::Knob, kParamDelaySm },
     { kParamDelayUnit,    "Delay Unit",     EParamCtrlKind::Dropdown },
   };
 
-  constexpr ParamCtrlDesc kPitchControls[] = {
-    { kParamRayInterval, "Ray Interval", EParamCtrlKind::Knob },
-    { kParamInterval,    "Interval",     EParamCtrlKind::Knob },
+  constexpr ParamClusterDesc kPitchControls[] = {
+    { kParamRayInterval, "Ray Interval", EParamCtrlKind::Knob, -1, kParamRayIntervalRm },
+    { kParamInterval,    "Interval",     EParamCtrlKind::Knob, -1, kParamIntervalRm, EParamCtrlKind::Knob, kParamIntervalSm },
   };
 
-  // §7.1/7.3/7.4/7.5's "_rm" params -- see the header comment above for why these are pooled here
-  // instead of living beside each base param.
-  constexpr ParamCtrlDesc kRayMultiplierControls[] = {
-    { kParamNSparklesPerRayRm, "Sparkles/Ray", EParamCtrlKind::Knob },
-    { kParamLoudnessRm,        "Velocity",     EParamCtrlKind::Knob },
-    { kParamDurationRm,        "Duration",     EParamCtrlKind::Knob },
-    { kParamRayDelayRm,        "Ray Delay",    EParamCtrlKind::Knob },
-    { kParamDelayRm,           "Delay",        EParamCtrlKind::Knob },
-    { kParamRayIntervalRm,     "Ray Interval", EParamCtrlKind::Knob },
-    { kParamIntervalRm,        "Interval",     EParamCtrlKind::Knob },
-    { kParamWidthRm,           "Width",        EParamCtrlKind::Knob },
-    { kParamPhaseRm,           "Phase",        EParamCtrlKind::Knob },
-    { kParamRayRotationRm,     "Ray Rotation", EParamCtrlKind::Dropdown },
-    { kParamAttackRm,          "Attack",       EParamCtrlKind::Knob },
-    { kParamDecayRm,           "Decay",        EParamCtrlKind::Knob },
-    { kParamSustainRm,         "Sustain",      EParamCtrlKind::Knob },
-    { kParamReleaseRm,         "Release",      EParamCtrlKind::Knob },
+  constexpr ParamClusterDesc kStereoControls[] = {
+    { kParamPanning,     "Panning",      EParamCtrlKind::Dropdown },
+    { kParamWidth,       "Width",        EParamCtrlKind::Knob, -1, kParamWidthRm, EParamCtrlKind::Knob, kParamWidthSm },
+    { kParamPhase,       "Phase",        EParamCtrlKind::Knob, -1, kParamPhaseRm, EParamCtrlKind::Knob, kParamPhaseSm },
+    { kParamRayRotation, "Ray Rotation", EParamCtrlKind::Dropdown, -1, kParamRayRotationRm, EParamCtrlKind::Dropdown },
   };
 
-  // §7.3/7.4/7.5's "_sm" params -- see the header comment above.
-  constexpr ParamCtrlDesc kSparkleMultiplierControls[] = {
-    { kParamLoudnessSm, "Velocity", EParamCtrlKind::Knob },
-    { kParamDurationSm, "Duration", EParamCtrlKind::Knob },
-    { kParamDelaySm,    "Delay",    EParamCtrlKind::Knob },
-    { kParamIntervalSm, "Interval", EParamCtrlKind::Knob },
-    { kParamWidthSm,    "Width",    EParamCtrlKind::Knob },
-    { kParamPhaseSm,    "Phase",    EParamCtrlKind::Knob },
-    { kParamAttackSm,   "Attack",   EParamCtrlKind::Knob },
-    { kParamDecaySm,    "Decay",    EParamCtrlKind::Knob },
-    { kParamSustainSm,  "Sustain",  EParamCtrlKind::Knob },
-    { kParamReleaseSm,  "Release",  EParamCtrlKind::Knob },
+  constexpr ParamClusterDesc kSynthControls[] = {
+    { kParamWaveShape, "Wave Shape", EParamCtrlKind::Knob },
+    { kParamAttack,    "Attack",     EParamCtrlKind::Knob, -1, kParamAttackRm,  EParamCtrlKind::Knob, kParamAttackSm },
+    { kParamDecay,     "Decay",      EParamCtrlKind::Knob, -1, kParamDecayRm,   EParamCtrlKind::Knob, kParamDecaySm },
+    { kParamSustain,   "Sustain",    EParamCtrlKind::Knob, -1, kParamSustainRm, EParamCtrlKind::Knob, kParamSustainSm },
+    { kParamRelease,   "Release",    EParamCtrlKind::Knob, -1, kParamReleaseRm, EParamCtrlKind::Knob, kParamReleaseSm },
   };
 
   constexpr ParamGroupDesc kParamGroups[] = {
-    { "Output",             kOutputControls,           (int) std::size(kOutputControls) },
-    { "Detection",          kDetectionControls,        (int) std::size(kDetectionControls) },
-    { "Key + Scale",        kKeyScaleControls,         (int) std::size(kKeyScaleControls) },
-    { "Structure",          kStructureControls,        (int) std::size(kStructureControls) },
-    { "Trigger Offset",     kOffsetControls,           (int) std::size(kOffsetControls) },
-    { "Sparkle Properties", kSparklePropertyControls,  (int) std::size(kSparklePropertyControls) },
-    { "Timing Chain",       kTimingControls,           (int) std::size(kTimingControls), 2 },
-    { "Pitch Chain",        kPitchControls,            (int) std::size(kPitchControls) },
-    { "Panning",            kPanningControls,          (int) std::size(kPanningControls) },
-    { "Synth Envelope",     kSynthControls,            (int) std::size(kSynthControls) },
-    { "Ray Multipliers",    kRayMultiplierControls,    (int) std::size(kRayMultiplierControls) },
-    { "Sparkle Multipliers",kSparkleMultiplierControls,(int) std::size(kSparkleMultiplierControls) },
+    { "General",             kGeneralControls,          (int) std::size(kGeneralControls) },
+    { "Technical",           kTechnicalControls,         (int) std::size(kTechnicalControls) },
+    { "Sprinkle Structure",  kSprinkleStructureControls, (int) std::size(kSprinkleStructureControls) },
+    { "Trigger Offset",      kOffsetControls,            (int) std::size(kOffsetControls) },
+    { "Sparkle Properties",  kSparklePropertyControls,   (int) std::size(kSparklePropertyControls) },
+    { "Timing",              kTimingControls,            (int) std::size(kTimingControls), 2 },
+    { "Pitch",               kPitchControls,             (int) std::size(kPitchControls) },
+    { "Stereo (Audio Output)", kStereoControls,          (int) std::size(kStereoControls) },
+    { "Synth",               kSynthControls,              (int) std::size(kSynthControls) },
   };
 
   constexpr int kNumParamGroups = (int) std::size(kParamGroups);
@@ -200,13 +160,45 @@ namespace
   // and below it -- cropping those was the whole reason the fixed-outer-grid layout got replaced
   // with this flow-packed one. Kept small on purpose -- each row is then stretched to fill any
   // leftover width (see kMaxExtraPerGroupW below), so these are a floor, not the final size.
-  constexpr float kCellW = 110.f;
-  constexpr float kKnobCellH = 82.f;
-  constexpr float kDropdownCellH = 34.f;
+  constexpr float kCellW = 72.f;
+  constexpr float kKnobCellH = 54.f;
+  constexpr float kDropdownCellH = 32.f;
+  // Rm/Sm modifier controls render smaller than their base, side by side with it in the same
+  // cluster -- see ClusterWidth/ClusterHeight below.
+  constexpr float kModW = 30.f;
+  constexpr float kModH = 30.f;
+  constexpr float kClusterGap = 3.f;
   // Cap on how much extra width a single group can be stretched by when justifying a row to fill
-  // paramsArea -- without this, a row with only one or two small groups (e.g. Ray Multipliers
-  // alone on its row) would balloon its knobs to an ungainly size on a wide window.
-  constexpr float kMaxExtraPerGroupW = 90.f;
+  // paramsArea -- without this, a row with only one or two small groups would balloon its knobs to
+  // an ungainly size on a wide window.
+  constexpr float kMaxExtraPerGroupW = 50.f;
+
+  // IVStyle's default label/value text (~19px/14px) is sized for the framework's normal control
+  // sizes -- at these compact cell sizes it doesn't just look oversized, IVectorBase::MakeRects
+  // carves the label/value bands out of the control's own rect *before* sizing the actual
+  // clickable/draggable widget, so an unshrunk label can consume the whole cell (or overflow it,
+  // producing a negative-size widget rect that IRECT::Contains() can never hit -- an invisible,
+  // permanently unclickable control). kCompactStyle keeps that carve-out small enough to leave a
+  // real widget behind. kCompactModStyle additionally drops the value readout for the small Rm/Sm
+  // knobs -- at kModW/kModH there isn't room for label + value + a clickable knob face all at once,
+  // and the base control right beside it already shows a value.
+  const IVStyle kCompactStyle = DEFAULT_STYLE
+    .WithLabelText(DEFAULT_LABEL_TEXT.WithSize(10.f))
+    .WithValueText(DEFAULT_VALUE_TEXT.WithSize(10.f));
+  const IVStyle kCompactModStyle = kCompactStyle.WithShowValue(false);
+
+  float ClusterWidth(const ParamClusterDesc& c)
+  {
+    float w = kCellW;
+    if (c.rmParamIdx >= 0) w += kClusterGap + kModW;
+    if (c.smParamIdx >= 0) w += kClusterGap + kModW;
+    return w;
+  }
+
+  float ClusterHeight(const ParamClusterDesc& c)
+  {
+    return c.kind == EParamCtrlKind::Dropdown ? kDropdownCellH : kKnobCellH;
+  }
 #endif
 }
 
@@ -216,11 +208,39 @@ Sparkles::Sparkles(const InstanceInfo& info)
   // Generated from params/ParamList.h -- see that file's header comment for the macro contract.
 #define SPARKLE_PARAM_DOUBLE(id, name, defaultVal, minVal, maxVal, step, label) \
   GetParam(id)->InitDouble(name, defaultVal, minVal, maxVal, step, label);
+#define SPARKLE_PARAM_DOUBLE_CURVE(id, name, defaultVal, minVal, maxVal, step, label, curve) \
+  GetParam(id)->InitDouble(name, defaultVal, minVal, maxVal, step, label, 0, "", IParam::ShapePowCurve(curve));
 #define SPARKLE_PARAM_INT(id, name, defaultVal, minVal, maxVal, label) \
   GetParam(id)->InitInt(name, defaultVal, minVal, maxVal, label);
 #define SPARKLE_PARAM_ENUM(id, name, defaultIdx, ...) \
   GetParam(id)->InitEnum(name, defaultIdx, { __VA_ARGS__ });
 #include "params/ParamList.h"
+
+  // Note-name display for the detection-range knobs, instead of a raw MIDI number (§2). Set here
+  // rather than threaded through the X-macro above -- SetDisplayFunc is a one-off per param, not
+  // worth a fifth macro shape for two call sites.
+  GetParam(kParamMinNote)->SetDisplayFunc([](double value, WDL_String& str) {
+    FormatNoteName(static_cast<int>(std::lround(value)), str);
+  });
+  GetParam(kParamMaxNote)->SetDisplayFunc([](double value, WDL_String& str) {
+    FormatNoteName(static_cast<int>(std::lround(value)), str);
+  });
+
+  // Names the current Sine/Triangle/Square/Saw blend (§7.7) instead of showing the raw 0-3 morph
+  // value, including in-between transitions (e.g. "Sine -> Tri 40%").
+  GetParam(kParamWaveShape)->SetDisplayFunc([](double value, WDL_String& str) {
+    static constexpr const char* kNames[4] = { "Sine", "Triangle", "Square", "Saw" };
+    const double clamped = std::clamp(value, 0.0, 3.0);
+    int segment = static_cast<int>(std::floor(clamped));
+    segment = std::clamp(segment, 0, 2);
+    const double blend = clamped - segment;
+    if (blend < 0.005)
+      str.Set(kNames[segment]);
+    else if (blend > 0.995)
+      str.Set(kNames[segment + 1]);
+    else
+      str.SetFormatted(32, "%s -> %s %d%%", kNames[segment], kNames[segment + 1], static_cast<int>(std::lround(blend * 100.0)));
+  });
 
 #if IPLUG_EDITOR // http://bit.ly/2S64BDd
   mMakeGraphicsFunc = [&]() {
@@ -229,48 +249,63 @@ Sparkles::Sparkles(const InstanceInfo& info)
   
   mLayoutFunc = [&](IGraphics* pGraphics) {
     const IRECT bounds = pGraphics->GetBounds();
-    const IRECT innerBounds = bounds.GetPadded(-10.f);
+    const IRECT innerBounds = bounds.GetPadded(-4.f);
 
-    const IRECT titleBounds = innerBounds.GetFromTop(40.f).GetFromLeft(220.f);
-    const IRECT versionBounds = innerBounds.GetFromTop(20.f).GetFromRight(300.f);
-    const IRECT contentBounds = innerBounds.GetReducedFromTop(45.f);
+    const IRECT titleBounds = innerBounds.GetFromTop(18.f).GetFromLeft(110.f);
+    const IRECT versionBounds = innerBounds.GetFromTop(13.f).GetFromRight(200.f);
+    const IRECT contentBounds = innerBounds.GetReducedFromTop(20.f);
 
     // Right-hand column, fixed width: visual-indicator panel on top (a tall, narrow envelope meter
-    // beside a stacked note/sprinkle-count/trigger-light readout), and below it the §5 note-
-    // eligibility matrix (12x12 grid + column/row toggles, see ui/NoteMatrixControl.h and
-    // mNoteMatrix in Sparkles.h). Everything left of this column is the param-group flow layout
-    // below.
-    const IRECT sideColumn = contentBounds.GetFromRight(320.f);
-    const IRECT paramsArea = contentBounds.GetReducedFromRight(330.f);
-    const IRECT visualArea = sideColumn.GetFromTop(340.f);
-    const IRECT noteMatrixBounds = sideColumn.GetReducedFromTop(350.f);
-    const IRECT meterBounds = visualArea.GetFromLeft(110.f).GetPadded(-6.f);
-    const IRECT infoArea = visualArea.GetReducedFromLeft(116.f);
-    const IRECT noteBounds = infoArea.GetGridCell(0, 4, 1).GetPadded(-5.f);
-    const IRECT sprinkleCountBounds = infoArea.GetGridCell(1, 4, 1).GetPadded(-5.f);
-    const IRECT triggerLightBounds = infoArea.GetGridCell(2, 4, 1).GetCentredInside(36.f);
-    const IRECT shutUpBounds = infoArea.GetGridCell(3, 4, 1).GetPadded(-5.f);
+    // beside a stacked note/sprinkle-count/trigger-light readout), then the §5.1 Key/Scale quick-
+    // fill pair, then the §5 note-eligibility matrix (12x12 grid + column/row toggles, see
+    // ui/NoteMatrixControl.h and mNoteMatrix in Sparkles.h) -- Key/Scale are hand-placed here
+    // (rather than in the flowing param-group grid below) since they act on the matrix directly.
+    // Everything left of this column is the param-group flow layout below.
+    const IRECT sideColumn = contentBounds.GetFromRight(210.f);
+    const IRECT paramsArea = contentBounds.GetReducedFromRight(216.f);
+    const IRECT visualArea = sideColumn.GetFromTop(210.f);
+    const IRECT keyHeaderBounds = sideColumn.GetReducedFromTop(210.f).GetFromTop(26.f);
+    const IRECT noteMatrixBounds = sideColumn.GetReducedFromTop(236.f);
+    const IRECT keyRootBounds = keyHeaderBounds.GetFromLeft(keyHeaderBounds.W() * 0.5f).GetPadded(-2.f);
+    const IRECT keyScaleDropdownBounds = keyHeaderBounds.GetFromRight(keyHeaderBounds.W() * 0.5f).GetPadded(-2.f);
+    const IRECT meterBounds = visualArea.GetFromLeft(60.f).GetPadded(-4.f);
+    const IRECT infoArea = visualArea.GetReducedFromLeft(64.f);
+    const IRECT noteBounds = infoArea.GetGridCell(0, 4, 1).GetPadded(-3.f);
+    const IRECT sprinkleCountBounds = infoArea.GetGridCell(1, 4, 1).GetPadded(-3.f);
+    const IRECT triggerLightBounds = infoArea.GetGridCell(2, 4, 1).GetCentredInside(22.f);
+    const IRECT shutUpBounds = infoArea.GetGridCell(3, 4, 1).GetPadded(-3.f);
 
-    // One IRECT per param control (in kParamGroups' group/table order) and one per group's labelled
-    // frame, computed once here so both the resize branch and the initial-attach branch below stay
-    // fed by the same layout math -- see CLAUDE.md's "How mLayoutFunc is structured". Groups are
-    // shelf-packed left to right, wrapping to a new row when they'd overflow paramsArea's width,
-    // rather than forced into a fixed outer grid -- a uniform grid either wasted space on small
-    // groups or squeezed big ones down to where their controls' labels got cropped. Each group's own
-    // controls still tile a simple sub-grid sized to its control count and kind (see kCellW/
-    // kKnobCellH/kDropdownCellH above).
+    // One entry per allocated param control (base, then Rm, then Sm -- in kParamGroups' group/
+    // cluster order) and one IRECT per group's labelled frame, computed once here so both the
+    // resize branch and the initial-attach branch below stay fed by the same layout math -- see
+    // CLAUDE.md's "How mLayoutFunc is structured". Groups are shelf-packed left to right, wrapping
+    // to a new row when they'd overflow paramsArea's width, rather than forced into a fixed outer
+    // grid -- a uniform grid either wasted space on small groups or squeezed big ones down to where
+    // their controls' labels got cropped. Within a group, clusters flow the same way (see the
+    // per-group inner loop below), since a cluster's width varies with how many Rm/Sm modifiers it
+    // has (see ClusterWidth).
     //
     // Two passes: pass 1 walks the groups in declared order and buckets them into rows using their
-    // nominal (unstretched) width, exactly like the old single-pass version did. Pass 2 then widens
-    // every row to actually fill paramsArea's width -- leftover space is split evenly across that
-    // row's groups (capped by kMaxExtraPerGroupW) instead of being left as dead space on the right,
-    // which is what made the layout look unresponsive to resizing/widening the window. Because
-    // GetGridCell() re-divides whatever rect it's given, widening a group's rect automatically grows
-    // its controls too -- no per-control size logic needed here.
-    constexpr float kGroupGap = 10.f;
+    // nominal (unstretched) width -- estimated from each group's widest cluster times its column
+    // count, since real per-cluster widths aren't known until a group's final rect is chosen below.
+    // Pass 2 then widens every row to actually fill paramsArea's width -- leftover space is split
+    // evenly across that row's groups (capped by kMaxExtraPerGroupW) instead of being left as dead
+    // space on the right. A group given more than its nominal width can only fit as many or more
+    // clusters per row than the nominal estimate assumed, so the real per-group content never grows
+    // taller than the nominal estimate computed here.
+    constexpr float kGroupGap = 6.f;
+
+    struct FlatCtrl
+    {
+      IRECT rect;
+      int paramIdx;
+      const char* label;
+      EParamCtrlKind kind;
+      int unitParamIdx; // TimeKnob only, else -1
+      bool isModifier = false; // Rm/Sm control -- picks kCompactModStyle over kCompactStyle
+    };
 
     std::vector<float> nominalW(kNumParamGroups), nominalH(kNumParamGroups);
-    std::vector<int> groupCols(kNumParamGroups), groupRows(kNumParamGroups);
     std::vector<std::vector<int>> rows;
     rows.reserve(kNumParamGroups);
 
@@ -279,16 +314,16 @@ Sparkles::Sparkles(const InstanceInfo& info)
       float rowW = 0.f;
       for (int g = 0; g < kNumParamGroups; g++) {
         const ParamGroupDesc& group = kParamGroups[g];
-        const bool hasKnob = std::any_of(group.controls, group.controls + group.numControls,
-          [](const ParamCtrlDesc& d) { return d.kind == EParamCtrlKind::Knob; });
-        const float cellH = hasKnob ? kKnobCellH : kDropdownCellH;
+        float maxClusterW = 0.f, maxClusterH = 0.f;
+        for (int c = 0; c < group.numClusters; c++) {
+          maxClusterW = std::max(maxClusterW, ClusterWidth(group.clusters[c]));
+          maxClusterH = std::max(maxClusterH, ClusterHeight(group.clusters[c]));
+        }
 
-        const int cols = group.preferredCols > 0 ? group.preferredCols : std::min(group.numControls, 3);
-        const int gRows = (group.numControls + cols - 1) / cols;
-        groupCols[g] = cols;
-        groupRows[g] = gRows;
-        nominalW[g] = cols * kCellW + 16.f;
-        nominalH[g] = gRows * cellH + 26.f + 16.f; // + label offset + top/bottom padding
+        const int cols = group.preferredCols > 0 ? group.preferredCols : std::min(group.numClusters, 6);
+        const int gRows = (group.numClusters + cols - 1) / cols;
+        nominalW[g] = cols * maxClusterW + (cols - 1) * kClusterGap + 16.f;
+        nominalH[g] = gRows * maxClusterH + 26.f + 16.f; // + label offset + top/bottom padding
 
         if (!currentRow.empty() && rowW + kGroupGap + nominalW[g] > paramsArea.W()) {
           rows.push_back(currentRow);
@@ -304,8 +339,8 @@ Sparkles::Sparkles(const InstanceInfo& info)
     }
 
     std::vector<IRECT> groupBounds(kNumParamGroups);
-    std::vector<IRECT> controlBounds;
-    controlBounds.reserve(64);
+    std::vector<FlatCtrl> flatControls;
+    flatControls.reserve(96);
 
     float rowY = paramsArea.T;
     for (const std::vector<int>& rowGroups : rows) {
@@ -326,12 +361,44 @@ Sparkles::Sparkles(const InstanceInfo& info)
         x += w + kGroupGap;
         rowH = std::max(rowH, h);
 
-        const int cols = groupCols[g];
-        const int gRows = groupRows[g];
+        // Flow clusters left-to-right within the group's real content width, wrapping to a new
+        // row when the next cluster wouldn't fit -- mirrors the group-row-wrap above, one level
+        // down. Each cluster contributes a base control, then (if present) a smaller Rm and Sm
+        // control immediately to its right.
         const IRECT groupContent = groupRect.GetPadded(-8.f, -22.f, -8.f, -8.f); // room for the group's own label
         const ParamGroupDesc& group = kParamGroups[g];
-        for (int c = 0; c < group.numControls; c++) {
-          controlBounds.push_back(groupContent.GetGridCell(c, gRows, cols).GetPadded(-4.f));
+
+        float cx = groupContent.L, cy = groupContent.T, clusterRowH = 0.f;
+        for (int c = 0; c < group.numClusters; c++) {
+          const ParamClusterDesc& cluster = group.clusters[c];
+          const float clusterW = ClusterWidth(cluster);
+          const float clusterH = ClusterHeight(cluster);
+
+          if (cx > groupContent.L && cx + clusterW > groupContent.R) {
+            cy += clusterRowH + kClusterGap;
+            cx = groupContent.L;
+            clusterRowH = 0.f;
+          }
+
+          const IRECT clusterRect(cx, cy, cx + clusterW, cy + clusterH);
+          flatControls.push_back(FlatCtrl{ clusterRect.GetFromLeft(kCellW).GetPadded(-2.f), cluster.paramIdx, cluster.label, cluster.kind, cluster.unitParamIdx });
+
+          // "Rm"/"Sm" rather than repeating the base param's (often much longer) label -- the base
+          // control right beside it already names the property, and the full label has no chance
+          // of fitting legibly in a ~30px modifier knob.
+          float modX = cx + kCellW + kClusterGap;
+          if (cluster.rmParamIdx >= 0) {
+            const IRECT modRect(modX, clusterRect.MH() - kModH * 0.5f, modX + kModW, clusterRect.MH() + kModH * 0.5f);
+            flatControls.push_back(FlatCtrl{ modRect.GetPadded(-1.f), cluster.rmParamIdx, "Rm", cluster.rmKind, -1, true });
+            modX += kModW + kClusterGap;
+          }
+          if (cluster.smParamIdx >= 0) {
+            const IRECT modRect(modX, clusterRect.MH() - kModH * 0.5f, modX + kModW, clusterRect.MH() + kModH * 0.5f);
+            flatControls.push_back(FlatCtrl{ modRect.GetPadded(-1.f), cluster.smParamIdx, "Sm", EParamCtrlKind::Knob, -1, true });
+          }
+
+          cx += clusterW + kClusterGap;
+          clusterRowH = std::max(clusterRowH, clusterH);
         }
       }
       rowY += rowH + kGroupGap;
@@ -347,12 +414,14 @@ Sparkles::Sparkles(const InstanceInfo& info)
       pGraphics->GetControlWithTag(kCtrlTagSprinkleCount)->SetTargetAndDrawRECTs(sprinkleCountBounds);
       pGraphics->GetControlWithTag(kCtrlTagTriggerLight)->SetTargetAndDrawRECTs(triggerLightBounds);
       pGraphics->GetControlWithTag(kCtrlTagShutUp)->SetTargetAndDrawRECTs(shutUpBounds);
+      pGraphics->GetControlWithTag(kCtrlTagKeyRoot)->SetTargetAndDrawRECTs(keyRootBounds);
+      pGraphics->GetControlWithTag(kCtrlTagKeyScale)->SetTargetAndDrawRECTs(keyScaleDropdownBounds);
       pGraphics->GetControlWithTag(kCtrlTagNoteMatrix)->SetTargetAndDrawRECTs(noteMatrixBounds);
 
-      for (int i = 0; i < (int) controlBounds.size(); i++)
-        pGraphics->GetControlWithTag(kCtrlTagFirstParamControl + i)->SetTargetAndDrawRECTs(controlBounds[i]);
+      for (int i = 0; i < (int) flatControls.size(); i++)
+        pGraphics->GetControlWithTag(kCtrlTagFirstParamControl + i)->SetTargetAndDrawRECTs(flatControls[i].rect);
       for (int g = 0; g < kNumParamGroups; g++)
-        pGraphics->GetControlWithTag(kCtrlTagFirstParamControl + (int) controlBounds.size() + g)->SetTargetAndDrawRECTs(groupBounds[g]);
+        pGraphics->GetControlWithTag(kCtrlTagFirstParamControl + (int) flatControls.size() + g)->SetTargetAndDrawRECTs(groupBounds[g]);
       return;
     }
 
@@ -366,13 +435,13 @@ Sparkles::Sparkles(const InstanceInfo& info)
     // anchor to the bottom edge and scale against the whole plugin height (see NoteBarsControl).
     pGraphics->AttachControl(new NoteBarsControl(bounds), kCtrlTagNoteBars);
 
-    pGraphics->AttachControl(new ITextControl(titleBounds, "Sparkles", IText(30)), kCtrlTagTitle);
+    pGraphics->AttachControl(new ITextControl(titleBounds, "Sparkles", IText(14)), kCtrlTagTitle);
     WDL_String buildInfoStr;
     GetBuildInfoStr(buildInfoStr, __DATE__, __TIME__);
     pGraphics->AttachControl(new ITextControl(versionBounds, buildInfoStr.Get(), DEFAULT_TEXT.WithAlign(EAlign::Far)), kCtrlTagVersionNumber);
 
     pGraphics->AttachControl(new EnvelopeMeterControl(meterBounds, kParamThreshold), kCtrlTagEnvelopeMeter);
-    pGraphics->AttachControl(new ValueDisplayControl<2>(noteBounds, "--", IText(28), [](const std::array<float, 2>& vals, WDL_String& str) {
+    pGraphics->AttachControl(new ValueDisplayControl<2>(noteBounds, "--", IText(18), [](const std::array<float, 2>& vals, WDL_String& str) {
       const int note = static_cast<int>(std::lround(vals[0]));
       if (note < 0 || vals[1] < kMinDisplayConfidence) {
         str.Set("--");
@@ -382,30 +451,36 @@ Sparkles::Sparkles(const InstanceInfo& info)
       FormatNoteName(note, noteName);
       str.SetFormatted(16, "%s %d%%", noteName.Get(), static_cast<int>(std::lround(vals[1] * 100.f)));
     }), kCtrlTagNoteDisplay);
-    pGraphics->AttachControl(new ValueDisplayControl<1>(sprinkleCountBounds, "0 sprinkles", IText(18), [](const std::array<float, 1>& vals, WDL_String& str) {
+    pGraphics->AttachControl(new ValueDisplayControl<1>(sprinkleCountBounds, "0 sprinkles", IText(12), [](const std::array<float, 1>& vals, WDL_String& str) {
       str.SetFormatted(32, "%d sprinkles", static_cast<int>(std::lround(vals[0])));
     }), kCtrlTagSprinkleCount);
     pGraphics->AttachControl(new TriggerLightControl(triggerLightBounds), kCtrlTagTriggerLight);
     pGraphics->AttachControl(new IVButtonControl(shutUpBounds, [&](IControl* pCaller) {
       SplashClickActionFunc(pCaller);
       mShutUpRequested.store(true, std::memory_order_release);
-    }, "Shut Up"), kCtrlTagShutUp);
+    }, "Shut Up", kCompactStyle), kCtrlTagShutUp);
+    pGraphics->AttachControl(new IVMenuButtonControl(keyRootBounds, kParamKeyRoot, "Root", kCompactStyle), kCtrlTagKeyRoot);
+    pGraphics->AttachControl(new IVMenuButtonControl(keyScaleDropdownBounds, kParamKeyScale, "Scale", kCompactStyle), kCtrlTagKeyScale);
     pGraphics->AttachControl(new NoteMatrixControl(noteMatrixBounds, &mNoteMatrix), kCtrlTagNoteMatrix);
 
-    int ctrlIndex = 0;
-    for (int g = 0; g < kNumParamGroups; g++) {
-      const ParamGroupDesc& group = kParamGroups[g];
-      for (int c = 0; c < group.numControls; c++, ctrlIndex++) {
-        const ParamCtrlDesc& desc = group.controls[c];
-        const int tag = kCtrlTagFirstParamControl + ctrlIndex;
-        const IRECT& rect = controlBounds[ctrlIndex];
-        if (desc.kind == EParamCtrlKind::Knob)
-          pGraphics->AttachControl(new IVKnobControl(rect, desc.paramIdx, desc.label), tag);
-        else
-          pGraphics->AttachControl(new IVMenuButtonControl(rect, desc.paramIdx, desc.label), tag);
+    for (int i = 0; i < (int) flatControls.size(); i++) {
+      const FlatCtrl& ctrl = flatControls[i];
+      const int tag = kCtrlTagFirstParamControl + i;
+      switch (ctrl.kind) {
+        case EParamCtrlKind::Knob:
+          pGraphics->AttachControl(new IVKnobControl(ctrl.rect, ctrl.paramIdx, ctrl.label, ctrl.isModifier ? kCompactModStyle : kCompactStyle), tag);
+          break;
+        case EParamCtrlKind::TimeKnob:
+          pGraphics->AttachControl(new TimeMagnitudeControl(ctrl.rect, ctrl.paramIdx, ctrl.unitParamIdx, ctrl.label), tag);
+          break;
+        case EParamCtrlKind::Dropdown:
+        default:
+          pGraphics->AttachControl(new IVMenuButtonControl(ctrl.rect, ctrl.paramIdx, ctrl.label, kCompactStyle), tag);
+          break;
       }
-      pGraphics->AttachControl(new IVGroupControl(groupBounds[g], group.name), kCtrlTagFirstParamControl + (int) controlBounds.size() + g);
     }
+    for (int g = 0; g < kNumParamGroups; g++)
+      pGraphics->AttachControl(new IVGroupControl(groupBounds[g], kParamGroups[g].name), kCtrlTagFirstParamControl + (int) flatControls.size() + g);
   };
 #endif
 }
@@ -511,6 +586,10 @@ void Sparkles::ShutUp()
   // side above rather than fading through a release tail.
   mSynthEngine.StopAll();
 
+  // Drop every pending cell flash too -- notes that will now never sound shouldn't still light up
+  // the matrix after the fact.
+  mFlashScheduler.Reset();
+
   mNumActiveSprinkles = 0;
 }
 
@@ -531,10 +610,45 @@ void Sparkles::OnParamChange(int paramIdx)
   }
 }
 
+void Sparkles::OnParamChange(int paramIdx, EParamSource source, int sampleOffset)
+{
+  OnParamChange(paramIdx);
+
+  // The Beats/ms unit-conversion below must only run for a genuine UI-driven toggle. iPlug2 also
+  // routes every param through here from OnParamReset (IPlugEditorDelegate.h) -- on construction,
+  // preset recall, etc. -- re-announcing each param's CURRENT value with no actual change. Reacting
+  // to those the same as a real toggle would rescale an already-correct magnitude on every plugin
+  // load (dividing it down toward 0, since the "new" unit always matches the old one there).
+  if (source != kUI)
+    return;
+
+  if (paramIdx == kParamPreDelayUnit)
+    ConvertTimeMagnitudeUnit(kParamPreDelay, paramIdx);
+  else if (paramIdx == kParamDurationUnit)
+    ConvertTimeMagnitudeUnit(kParamDuration, paramIdx);
+  else if (paramIdx == kParamRayDelayUnit)
+    ConvertTimeMagnitudeUnit(kParamRayDelay, paramIdx);
+  else if (paramIdx == kParamDelayUnit)
+    ConvertTimeMagnitudeUnit(kParamDelay, paramIdx);
+}
+
 void Sparkles::ConfigurePitchTracker()
 {
   mPitchTracker.Configure(
     GetSampleRate(), GetParam(kParamMinNote)->Int(), GetParam(kParamMaxNote)->Int(), kNoteHoldSeconds);
+}
+
+void Sparkles::ConvertTimeMagnitudeUnit(int magnitudeParamIdx, int unitParamIdx)
+{
+  // Beats/ms is a straight two-option toggle (see params/ParamList.h), so by the time this fires
+  // the unit param already holds the new unit -- rescale the magnitude so it still represents the
+  // same real duration under that unit at the current tempo, rather than reinterpreting the same
+  // raw number under a different unit.
+  const int newUnit = GetParam(unitParamIdx)->Int(); // 0 = Beats, 1 = ms
+  const double msPerBeat = 60000.0 / GetTempo();
+  const double oldValue = GetParam(magnitudeParamIdx)->Value();
+  const double newValue = newUnit == 1 ? oldValue * msPerBeat : oldValue / msPerBeat;
+  SetParameterValue(magnitudeParamIdx, GetParam(magnitudeParamIdx)->ToNormalized(newValue));
 }
 
 void Sparkles::FireSprinkle(int triggerNote, int64_t triggerSample, const sparkle_core::SparkleParams& params,
@@ -556,6 +670,19 @@ void Sparkles::FireSprinkle(int triggerNote, int64_t triggerSample, const sparkl
   const bool sendMidi = outputMode != sparkle_core::OutputMode::Audio;
   const bool sendAudio = outputMode != sparkle_core::OutputMode::Midi;
 
+  // Every event shares triggerNote's column; a trigger can still generate hundreds of events
+  // (SparkleGenerator::kMaxEventsPerTrigger). Each one gets its own mFlashScheduler entry at its
+  // own atSample -- regardless of sendMidi/sendAudio, since the flash should track whichever event
+  // actually sounds -- rather than flashing every hit cell immediately here, so the note matrix
+  // reflects notes as they're actually heard instead of all at once when the sprinkle is generated.
+  const int triggerColumn = sparkle_core::PitchClassOf(triggerNote);
+
+  // Column-header-only flash, pushed immediately (unlike the per-cell flashes below) so it reflects
+  // the sparkle being created rather than any individual note actually sounding -- see
+  // ui/NoteMatrixControl.h's OnMsgFromDelegate for the row < 0 header-only convention.
+  mNoteMatrixFlashSender.PushData(ISenderData<2>(kCtrlTagNoteMatrix,
+    std::array<float, 2>{ static_cast<float>(triggerColumn), -1.f }));
+
   int64_t sprinkleEndSample = triggerSample;
   for (const auto& event : mScratchEvents) {
     const int64_t atSample = triggerSample + event.timeOffsetSamples;
@@ -568,6 +695,9 @@ void Sparkles::FireSprinkle(int triggerNote, int64_t triggerSample, const sparkl
                                   event.decaySamples, event.sustainLevel, event.releaseSamples,
                                   event.durationSamples, atSample);
     }
+
+    const int row = sparkle_core::PitchClassOf(event.note);
+    mFlashScheduler.Schedule(triggerColumn * sparkle_core::kNumPitchClasses + row, 0, 0, atSample);
 
     sprinkleEndSample = std::max(sprinkleEndSample, atSample + event.durationSamples);
   }
@@ -728,6 +858,37 @@ void Sparkles::ProcessBlock(sample** inputs, sample** outputs, int nFrames)
     }
   } while (nSchedEvents == schedEvents.size());
 
+  // Flush every flash "note-on" due in this block the same way, decoding mFlashScheduler's packed
+  // column/row back out of SchedEvent::note (see FireSprinkle) and deduping within the block before
+  // pushing to mNoteMatrixFlashSender -- several events can land on the same cell in one block, and
+  // the queue behind the sender is only 64 deep (see ISender.h). Note-offs are meaningless here
+  // (every flash event schedules with durationSamples 0 purely to get a paired one out of the pool)
+  // so they're ignored.
+  std::array<std::array<bool, sparkle_core::kNumPitchClasses>, sparkle_core::kNumPitchClasses> cellsHit{};
+  size_t nFlashEvents;
+  do {
+    nFlashEvents = mFlashScheduler.FlushBlock(blockStart, nFrames, schedEvents.data(), schedEvents.size());
+
+    for (size_t i = 0; i < nFlashEvents; i++) {
+      const sparkle_core::SchedEvent& event = schedEvents[i];
+      if (event.type != sparkle_core::SchedEventType::NoteOn)
+        continue;
+
+      const int col = event.note / sparkle_core::kNumPitchClasses;
+      const int row = event.note % sparkle_core::kNumPitchClasses;
+      cellsHit[col][row] = true;
+    }
+  } while (nFlashEvents == schedEvents.size());
+
+  for (int col = 0; col < sparkle_core::kNumPitchClasses; col++) {
+    for (int row = 0; row < sparkle_core::kNumPitchClasses; row++) {
+      if (cellsHit[col][row]) {
+        mNoteMatrixFlashSender.PushData(ISenderData<2>(kCtrlTagNoteMatrix,
+          std::array<float, 2>{ static_cast<float>(col), static_cast<float>(row) }));
+      }
+    }
+  }
+
   mBlockStartSample += nFrames;
 
   // Reap once more here (rather than only at the next trigger) so mSprinkleCountSender reports a
@@ -764,5 +925,6 @@ void Sparkles::OnIdle()
   mNoteBarsSender.TransmitData(*this);
   mTriggerSender.TransmitData(*this);
   mSprinkleCountSender.TransmitData(*this);
+  mNoteMatrixFlashSender.TransmitData(*this);
 }
 #endif

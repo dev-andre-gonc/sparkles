@@ -142,12 +142,21 @@ namespace sparkle_core
     // the index it would be inserted at (the list is sorted ascending by MIDI note).
     std::optional<int> Walk(int startNote, int steps, int rangeMin, int rangeMax, WrapMode wrapMode) const
     {
-      const std::vector<int> notes = EligibleNotes(startNote, rangeMin, rangeMax);
+      return Walk(startNote, startNote, steps, rangeMin, rangeMax, wrapMode);
+    }
+
+    // Same as above, but lets the caller shift where `steps` starts counting from (`anchorNote`)
+    // independently of which column's eligibility rules apply (`columnNote`) -- see §7.2's Pre
+    // Interval, which shifts the sprinkle's starting point by an exact number of semitones without
+    // changing which matrix column governs eligibility for it.
+    std::optional<int> Walk(int columnNote, int anchorNote, int steps, int rangeMin, int rangeMax, WrapMode wrapMode) const
+    {
+      const std::vector<int> notes = EligibleNotes(columnNote, rangeMin, rangeMax);
       const int n = static_cast<int>(notes.size());
       if (n == 0)
         return std::nullopt;
 
-      const auto it = std::lower_bound(notes.begin(), notes.end(), startNote);
+      const auto it = std::lower_bound(notes.begin(), notes.end(), anchorNote);
       int startIdx = static_cast<int>(it - notes.begin());
       if (startIdx >= n)
         startIdx = n - 1;

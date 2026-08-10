@@ -17,6 +17,7 @@
 #include "ui/EnvelopeMeterControl.h"
 #include "ui/NoteBarsControl.h"
 #include "ui/NoteMatrixControl.h"
+#include "ui/TimeMagnitudeControl.h"
 #include "ui/TriggerLightControl.h"
 #include "ui/ValueDisplayControl.h"
 #endif
@@ -27,6 +28,7 @@ const int kNumPresets = 1;
 // every param's id, name, range/options and default; see its header comment. Sparkles.cpp's
 // constructor re-includes the same file to generate the matching InitXxx() calls.
 #define SPARKLE_PARAM_DOUBLE(id, ...) id,
+#define SPARKLE_PARAM_DOUBLE_CURVE(id, ...) id,
 #define SPARKLE_PARAM_INT(id, ...) id,
 #define SPARKLE_PARAM_ENUM(id, ...) id,
 enum EParams
@@ -46,6 +48,8 @@ enum ECtrlTags
   kCtrlTagNoteMatrix,      // §5 note-eligibility grid + column/row toggles, see ui/NoteMatrixControl.h
   kCtrlTagNoteBars,        // per-note confidence bars along the bottom edge, see ui/NoteBarsControl.h
   kCtrlTagShutUp,          // kills all in-flight sprinkles/rays/sparkles, see mShutUpRequested
+  kCtrlTagKeyRoot,         // §5.1 key/scale quick-fill, hand-placed beside kCtrlTagNoteMatrix
+  kCtrlTagKeyScale,
 
   // Every param in kParamGroups (see Sparkles.cpp) gets one tag here, in group/table order,
   // followed by one tag per group's labelled IVGroupControl frame -- both runs are assigned at
@@ -71,6 +75,13 @@ public:
   void ProcessMidiMsg(const IMidiMsg& msg) override;
   void OnReset() override;
   void OnParamChange(int paramIdx) override;
+  // Overridden (rather than just the 1-arg version above) so the Beats/ms unit-conversion branch
+  // can tell a genuine UI-driven toggle (source == kUI) apart from iPlug2's own re-announcement of
+  // every param's current value -- see OnParamReset in IPlugEditorDelegate.h, which iterates every
+  // param and calls this on plugin construction/preset recall/etc. even though nothing actually
+  // changed. Converting on those spurious calls too would silently rescale an already-correct
+  // magnitude every time the plugin loads.
+  void OnParamChange(int paramIdx, EParamSource source, int sampleOffset = -1) override;
   void OnIdle() override;
 
 private:
@@ -106,6 +117,12 @@ private:
   // Called on reset and whenever those params change. (Candidate-note bounds live in
   // params/ParamRanges.h since params/ParamList.h's kParamMinNote/kParamMaxNote need them too.)
   void ConfigurePitchTracker();
+
+  // Called from OnParamChange whenever one of the four Beats/ms *Unit params (Pre Delay/Duration/
+  // Ray Delay/Delay, §7.2/§7.4) flips, so the sibling magnitude param keeps representing the same
+  // real duration across the switch instead of having its raw number reinterpreted under the new
+  // unit. `unitParamIdx`'s value has already been updated by the time OnParamChange fires.
+  void ConvertTimeMagnitudeUnit(int magnitudeParamIdx, int unitParamIdx);
 
   // Launches one sprinkle for a resolved trigger: blinks the trigger light, enforces
   // kMaxSimultaneousSprinkles, generates the events and schedules them. The light fires here
@@ -167,6 +184,14 @@ private:
 
   sparkle_core::EventScheduler<> mEventScheduler;
 
+  // Purely visual: schedules a note-matrix cell flash for the sample each individual sparkle event
+  // actually fires at, independent of mEventScheduler/mSynthEngine above and populated regardless
+  // of Output Mode (see FireSprinkle) so a cell flashes when its note is actually heard rather than
+  // all at once when the sprinkle is generated. `note` is repurposed to carry the flashing cell,
+  // packed as `column * sparkle_core::kNumPitchClasses + row` (see ProcessBlock's flush loop for the
+  // unpack) -- velocity/duration are unused (0) since there's no matching "note off" to schedule.
+  sparkle_core::EventScheduler<> mFlashScheduler;
+
   // Audio Output Mode's voice pool (§7.7) -- fed alongside or instead of mEventScheduler above,
   // depending on Output Mode, see FireSprinkle. Rendered directly into ProcessBlock's output
   // buffer rather than sent as MIDI.
@@ -204,5 +229,11 @@ private:
   ISender<sparkle_params::kNumTriggerableNotes> mNoteBarsSender; // per-note confidences, once per block
   ISender<1> mTriggerSender;
   ISender<1> mSprinkleCountSender;
+  // {column, row} pitch-class pair. row >= 0, once per distinct cell that fired a note-on within
+  // the current block (see mFlashScheduler and ProcessBlock's flush loop), flashes that cell in
+  // ui/NoteMatrixControl.h at the moment the note is actually heard. row == -1, pushed immediately
+  // from FireSprinkle, flashes only that column's header at the moment the sparkle is created --
+  // see ui/NoteMatrixControl.h's OnMsgFromDelegate for both conventions.
+  ISender<2> mNoteMatrixFlashSender;
 #endif
 };
