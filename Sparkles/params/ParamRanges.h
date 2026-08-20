@@ -11,7 +11,7 @@ namespace sparkle_params
   // tracker only has to check a couple dozen candidates instead of every possible frequency.
   constexpr int kMinTriggerableNote = 24;    // C1
   constexpr int kMaxTriggerableNote = 108;   // C8
-  constexpr int kDefaultMinTriggerNote = 48; // C3
+  constexpr int kDefaultMinTriggerNote = 36; // C2
   constexpr int kDefaultMaxTriggerNote = 84; // C6
 
   // One per-note confidence bar in the UI's bottom strip (ui/NoteBarsControl.h) for every note

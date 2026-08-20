@@ -173,7 +173,8 @@ Round `RawSteps` to the nearest integer. The resulting signed integer is the num
 
 | Param | Description |
 |---|---|
-| `panning` | `mono` / `random` / `sine` / `triangle` / `square` / `saw`. `mono` ignores all panning params below. `random` uses only the `width` params. |
+| `panning` | `mono` / `random` / `sine` / `triangle` / `square` / `saw`. `mono` ignores all panning params below. `random` uses only the `width` and `seed` params. |
+| `seed` | User-picked integer, used only by `random`. Combined with the trigger's absolute position in the DAW project timeline (not wall-clock time, and not any plugin-internal counter) so the same trigger, at the same point in the same project, reproduces the same "random" pan across playthroughs — while still varying per ray/sparkle/note within one trigger. A plain saved value rather than a "reseed" action: dialing the same number back in recovers a pattern the user liked. |
 | `width`, `width_rm`, `width_sm` | Stereo spread, evaluated directly (same pattern as §7.3): `width(ray_n, sparkle_n) = width * width_rm^ray_n * width_sm^sparkle_n`. |
 | `phase`, `phase_rm`, `phase_sm` | Position along the pan waveform's cycle, evaluated directly: `phase(ray_n, sparkle_n) = phase * phase_rm^ray_n * phase_sm^sparkle_n`. Used only by `sine`/`triangle`/`square`/`saw`. |
 | `ray_rotation` | `L` / `R` — base sign applied to ray 0's computed pan position (see below). |
@@ -197,6 +198,16 @@ pan(ray_n, sparkle_n) = clamp( sign(ray_n) * width(ray_n, sparkle_n) * Wave(pann
 - `saw`: ramps linearly `-1 → 1` over `p ∈ [0, 1)`, then jumps back to `-1`.
 
 Real per-sparkle stereo panning is only possible when `output_mode` includes `Audio` — MIDI has no true per-note pan (CC10 is a per-channel control, not per-voice), so in `MIDI`-only mode the pan values computed above are simply never applied to anything audible. The formulas themselves always run regardless of `output_mode`, same as every other per-sparkle property.
+
+**`random`'s pan position.** Unlike the waveform modes above, `random` has no `Wave()` lookup — instead a sparkle's pan is a stateless hash of everything that identifies "this exact trigger, this exact sparkle":
+
+```
+unit(seed, timeline_sample, trigger_note, ray_n, sparkle_n) = Hash(...) -> uniform [0, 1)
+
+pan(ray_n, sparkle_n) = clamp( width(ray_n, sparkle_n) * (unit * 2 - 1), -1, 1 )
+```
+
+`timeline_sample` is the trigger's absolute position in the project timeline (the host's transport position when the trigger fired, not a plugin-internal free-running counter — see `Sparkles::ProcessBlock`'s `GetSamplePos()` usage), so replaying the same project from the start reproduces the same "random" pan for every trigger, while a trigger a millisecond earlier or later (a genuinely different timeline position) gets a different, still-reproducible pan. `ray_rotation`/`ray_rotation_rm`/`phase` have no effect on `random` — only `width` shapes its output, same as before this hash replaced a plain RNG stream.
 
 ### 7.7 Synth (Audio Output Mode)
 
@@ -225,9 +236,9 @@ Unlike §7.4's `delay`/`ray_delay`/etc., attack/decay/release are plain seconds 
 
 ## 8. Presets
 
-Presets save and recall every parameter in this spec **except** the note eligibility matrix (§5) and its `key_root`/`key_scale` quick-fill controls (§5.1). Loading a different preset changes the sprinkle/ray/sparkle design — structure, timing, pitch-step, loudness, duration, panning, detection params — but leaves whatever key/scale/matrix the performer currently has dialed in untouched.
+The in-plugin Presets button is a fixed factory list, not a general save/recall mechanism — the DAW's own preset browser already handles saving/recalling the plugin's full state (every param, the note matrix, everything), independent of this button. This button's own scope is deliberately narrower: it only covers the structure/timing/pitch-step/loudness/duration and synth/panning params (the UI's General, Pitch and Timing, and Synth tabs). It does **not** touch detection params (§2 — Detection Mode, Trigger On, Threshold, Min Velocity, Envelope Reactiveness, Note Confidence, Min/Max Detection Note), the note eligibility matrix (§5), or its `key_root`/`key_scale` quick-fill controls (§5.1). Loading a different preset changes the sprinkle/ray/sparkle "sound" but leaves however the performer currently has detection tuned and whatever key/scale/matrix they're playing in untouched.
 
-This is deliberate: the matrix represents the key the performer is currently playing in, which is independent of which sprinkle "sound" is loaded — switching presets mid-performance shouldn't yank the plugin out of the current key. The matrix and `key_root`/`key_scale` are still part of the plugin's normal saved state (DAW project save/reload, copying the plugin instance) — "excluded from presets" only means the preset browser/bank doesn't touch them, not that they're ephemeral.
+This is deliberate: detection tuning and the matrix both represent how the plugin is currently listening/what key the performer is currently playing in, independent of which sprinkle "sound" is loaded — switching presets mid-performance shouldn't retune detection or yank the plugin out of the current key. All of it is still part of the plugin's normal saved state (DAW project save/reload, copying the plugin instance, or the DAW's own preset browser) — excluded from the in-plugin Presets button only means that specific button doesn't touch it, not that it's ephemeral.
 
 ## 9. Assumptions and interpretations applied in this spec
 

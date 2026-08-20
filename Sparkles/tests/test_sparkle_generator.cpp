@@ -51,16 +51,6 @@ namespace
     return events.empty() ? std::nan("") : events[0].pan;
   }
 
-  // Deterministic stand-in for PanMode::Random's injected RandomFn (a plain function pointer, so
-  // it can't be a capturing lambda) -- cycles through a fixed sequence each call.
-  double TestRandomSequence()
-  {
-    static const double kValues[] = { 0.0, 0.25, 0.5, 0.75, 1.0 };
-    static size_t index = 0;
-    const double value = kValues[index % 5];
-    ++index;
-    return value;
-  }
 }
 
 TEST(SparkleGenerator_SingleRaySingleSparkle)
@@ -697,7 +687,7 @@ TEST(SparkleGenerator_PreInterval_AnchorsWithinTriggerColumnsOwnEligibleList)
   CHECK(events[0].note == 67);
 }
 
-TEST(SparkleGenerator_Panning_Random_UsesInjectedSourceAndOnlyWidth)
+TEST(SparkleGenerator_Panning_Random_RespectsWidthBoundsAndVariesPerSparkle)
 {
   // "random uses only the width params" (§7.6) -- ray_rotation is deliberately set to R here to
   // confirm it has no effect on random's output, unlike the sine/triangle/square/saw modes.
@@ -713,14 +703,79 @@ TEST(SparkleGenerator_Panning_Random_UsesInjectedSourceAndOnlyWidth)
   params.panning = PanMode::Random;
   params.width = 0.4;
   params.rayRotation = RayRotation::R;
+  params.seed = 12345;
 
   std::vector<SparkleEvent> events;
-  SparkleGenerator::Generate(matrix, params, 60, kBpm, kSampleRate, events, TestRandomSequence);
+  SparkleGenerator::Generate(matrix, params, 60, kBpm, kSampleRate, events, /*timelineSample=*/999);
 
   CHECK(events.size() == 5);
-  const double expected[] = { -0.4, -0.2, 0.0, 0.2, 0.4 }; // width * (random*2 - 1)
-  for (size_t i = 0; i < 5; ++i)
-    CHECK(ApproxEqual(events[i].pan, expected[i]));
+  bool allSame = true;
+  for (size_t i = 0; i < 5; ++i) {
+    CHECK(events[i].pan >= -0.4 - 1e-9 && events[i].pan <= 0.4 + 1e-9);
+    if (i > 0 && !ApproxEqual(events[i].pan, events[0].pan))
+      allSame = false;
+  }
+  CHECK(!allSame); // each sparkle's pan comes from its own (rayN, sparkleN) hash, not one shared value
+}
+
+TEST(SparkleGenerator_Panning_Random_DeterministicForSameSeedTimelineAndTrigger)
+{
+  // The whole point of hashing (seed, timeline position, trigger note, ray_n, sparkle_n) instead
+  // of pulling from a stream: repeating the exact same trigger reproduces the exact same pans,
+  // regardless of how many other Generate() calls happened before it.
+  NoteMatrix matrix;
+  SparkleParams params;
+  params.nRays = 2;
+  params.nSparklesPerRay = 3;
+  params.rangeMin = 60;
+  params.rangeMax = 90;
+  params.wrapMode = WrapMode::Around;
+  params.rayInterval = 1;
+  params.interval = 1;
+  params.panning = PanMode::Random;
+  params.width = 0.7;
+  params.seed = 42;
+
+  std::vector<SparkleEvent> a, b;
+  SparkleGenerator::Generate(matrix, params, 67, kBpm, kSampleRate, a, /*timelineSample=*/123456);
+  SparkleGenerator::Generate(matrix, params, 67, kBpm, kSampleRate, b, /*timelineSample=*/123456);
+
+  CHECK(a.size() == b.size());
+  for (size_t i = 0; i < a.size(); ++i)
+    CHECK(ApproxEqual(a[i].pan, b[i].pan));
+}
+
+TEST(SparkleGenerator_Panning_Random_DiffersAcrossSeedAndTimelinePosition)
+{
+  // Changing the seed, or the trigger's timeline position, should (in practice, for a
+  // well-mixed hash) change the resulting pan -- otherwise every trigger would sound identical,
+  // defeating the point of "random" mode.
+  NoteMatrix matrix;
+  SparkleParams params;
+  params.nRays = 1;
+  params.nSparklesPerRay = 1;
+  params.rangeMin = 60;
+  params.rangeMax = 90;
+  params.wrapMode = WrapMode::Around;
+  params.panning = PanMode::Random;
+  params.width = 1.0;
+  params.seed = 7;
+
+  std::vector<SparkleEvent> baseline;
+  SparkleGenerator::Generate(matrix, params, 60, kBpm, kSampleRate, baseline, /*timelineSample=*/1000);
+  CHECK(baseline.size() == 1);
+
+  std::vector<SparkleEvent> differentTimeline;
+  SparkleGenerator::Generate(matrix, params, 60, kBpm, kSampleRate, differentTimeline, /*timelineSample=*/2000);
+  CHECK(differentTimeline.size() == 1);
+  CHECK(!ApproxEqual(baseline[0].pan, differentTimeline[0].pan));
+
+  SparkleParams differentSeedParams = params;
+  differentSeedParams.seed = 8;
+  std::vector<SparkleEvent> differentSeed;
+  SparkleGenerator::Generate(matrix, differentSeedParams, 60, kBpm, kSampleRate, differentSeed, /*timelineSample=*/1000);
+  CHECK(differentSeed.size() == 1);
+  CHECK(!ApproxEqual(baseline[0].pan, differentSeed[0].pan));
 }
 
 TEST(SparkleGenerator_Envelope_DefaultsMatchStructDefaults)

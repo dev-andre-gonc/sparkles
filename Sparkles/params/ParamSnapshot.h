@@ -116,6 +116,7 @@ namespace sparkle_params
 
     s.rayRotation = static_cast<sparkle_core::RayRotation>(plugin.GetParam(kParamRayRotation)->Int());
     s.rayRotationRm = static_cast<sparkle_core::RayRotationMode>(plugin.GetParam(kParamRayRotationRm)->Int());
+    s.seed = plugin.GetParam(kParamSeed)->Int();
 
     s.attack = plugin.GetParam(kParamAttack)->Value();
     s.attackRm = plugin.GetParam(kParamAttackRm)->Value();

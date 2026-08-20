@@ -68,15 +68,6 @@ namespace sparkle_core
     int64_t releaseSamples = 0;
   };
 
-  // Uniform-[0,1) random source, used only by PanMode::Random (§7.6). Injected rather than
-  // owned so callers/tests can make generation deterministic.
-  using RandomFn = double (*)();
-
-  inline double DefaultRandom()
-  {
-    return static_cast<double>(std::rand()) / (static_cast<double>(RAND_MAX) + 1.0);
-  }
-
   // Mirrors docs/SPEC.md §7 param names. `_rm` = per-ray exponential multiplier, `_sm` = per-
   // sparkle-within-ray exponential multiplier, applied as documented on each formula.
   struct SparkleParams
@@ -123,6 +114,11 @@ namespace sparkle_core
 
     // Panning (§7.6)
     PanMode panning = PanMode::Mono;
+    // User-picked value combined with the trigger's project-timeline sample position to seed
+    // PanMode::Random (see PanRandomUnit below) -- a plain saved number rather than a "reseed"
+    // action, so a pattern the user liked can always be recovered by dialing the same seed back
+    // in. Unused by every other panning mode.
+    int seed = 0;
     double width = 0.0;
     double widthRm = 1.0;
     double widthSm = 1.0;
@@ -202,9 +198,16 @@ namespace sparkle_core
     // then filled via push_back, which never reallocates since capacity already covers the upper
     // bound. If the requested rays/sparkles would exceed kMaxEventsPerTrigger, generation stops
     // early (mid-ray if necessary) rather than growing the buffer.
+    //
+    // `timelineSample` is the trigger's absolute position in the DAW project timeline (e.g. the
+    // host's transport sample position at the moment of the trigger, NOT a plugin-internal
+    // sample counter -- see Sparkles.cpp's ProcessBlock for how it's derived from GetSamplePos()).
+    // It feeds PanMode::Random's hash alongside params.seed (§7.6) so the same trigger, at the
+    // same point in the same project, reproduces the same "random" pan across playthroughs --
+    // defaults to 0 since only PanMode::Random ever reads it.
     static void Generate(const NoteMatrix& matrix, const SparkleParams& params, int triggerNote,
                           double bpm, double sampleRate, std::vector<SparkleEvent>& outEvents,
-                          RandomFn random = DefaultRandom)
+                          int64_t timelineSample = 0)
     {
       outEvents.clear();
       outEvents.reserve(MaxEventCount(params));
@@ -274,7 +277,7 @@ namespace sparkle_core
           // part naturally via Wave()'s own `frac = p - floor(p)`, so no explicit wrap is needed
           // here (e.g. 5.3 -> 0.3, including for negative sums).
           const double phase = params.phase + params.phaseRm * rayN + params.phaseSm * sparkleN;
-          event.pan = Pan(params.panning, signForThisRay, width, phase, random);
+          event.pan = Pan(params.panning, signForThisRay, width, phase, params.seed, timelineSample, triggerNote, rayN, sparkleN);
 
           // attack/decay/release are resolved in milliseconds (§7.7); converted to seconds here,
           // once, right before the sample conversion below.
@@ -334,12 +337,53 @@ namespace sparkle_core
       }
     }
 
-    static double Pan(PanMode mode, double signForThisRay, double width, double phase, RandomFn random)
+    // SplitMix64's finalizer -- a fast, well-avalanched integer hash (not cryptographic, doesn't
+    // need to be for pan noise). Used as the mixing step in HashCombine below.
+    static uint64_t MixBits(uint64_t x)
+    {
+      x ^= x >> 30;
+      x *= 0xbf58476d1ce4e5b9ULL;
+      x ^= x >> 27;
+      x *= 0x94d049bb133111ebULL;
+      x ^= x >> 31;
+      return x;
+    }
+
+    // boost::hash_combine-shaped fold of one more integer into a running hash, using MixBits as
+    // the avalanche step so every input bit affects every output bit regardless of fold order.
+    static uint64_t HashCombine(uint64_t seed, uint64_t value)
+    {
+      return seed ^ MixBits(value + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2));
+    }
+
+    // Stateless replacement for a stream-based RNG (§7.6's PanMode::Random): a pure function of
+    // the seed param, the trigger's project-timeline position, which note triggered, and which
+    // ray/sparkle this is -- same inputs always produce the same [0,1) output, in any order, on
+    // any machine, with no shared/mutable state. That's what makes "random" panning reproducible
+    // across playthroughs of the same project (same trigger, same timeline position -> same pan)
+    // while still varying per-note (chords) and per-sparkle within one trigger.
+    static double PanRandomUnit(int seed, int64_t timelineSample, int triggerNote, int rayN, int sparkleN)
+    {
+      uint64_t h = static_cast<uint64_t>(static_cast<int64_t>(seed));
+      h = HashCombine(h, static_cast<uint64_t>(timelineSample));
+      h = HashCombine(h, static_cast<uint64_t>(static_cast<uint32_t>(triggerNote)));
+      h = HashCombine(h, static_cast<uint64_t>(static_cast<uint32_t>(rayN)));
+      h = HashCombine(h, static_cast<uint64_t>(static_cast<uint32_t>(sparkleN)));
+      // Top 53 bits -> uniform double in [0, 1), matching a typical double's mantissa precision.
+      return static_cast<double>(h >> 11) * (1.0 / 9007199254740992.0); // 2^53
+    }
+
+    static double Pan(PanMode mode, double signForThisRay, double width, double phase,
+                       int seed, int64_t timelineSample, int triggerNote, int rayN, int sparkleN)
     {
       switch (mode)
       {
         case PanMode::Mono: return 0.0;
-        case PanMode::Random: return std::clamp(width * (random() * 2.0 - 1.0), -1.0, 1.0);
+        case PanMode::Random:
+        {
+          const double unit = PanRandomUnit(seed, timelineSample, triggerNote, rayN, sparkleN);
+          return std::clamp(width * (unit * 2.0 - 1.0), -1.0, 1.0);
+        }
         case PanMode::Sine:
         case PanMode::Triangle:
         case PanMode::Square:

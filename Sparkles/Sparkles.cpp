@@ -131,6 +131,7 @@ namespace
     { kParamWidth,       "Width",        EParamCtrlKind::Knob, -1, kParamWidthRm, EParamCtrlKind::Knob, kParamWidthSm },
     { kParamPhase,       "Phase",        EParamCtrlKind::Knob, -1, kParamPhaseRm, EParamCtrlKind::Knob, kParamPhaseSm },
     { kParamRayRotation, "Ray Rotation", EParamCtrlKind::Dropdown, -1, kParamRayRotationRm, EParamCtrlKind::Dropdown },
+    { kParamSeed,        "Seed",         EParamCtrlKind::Knob },
   };
 
   constexpr ParamClusterDesc kSynthControls[] = {
@@ -506,7 +507,7 @@ void Sparkles::ProcessMidiMsg(const IMidiMsg& msg)
   mMidiQueue.Add(msg);
 }
 
-void Sparkles::HandleMidiTrigger(const IMidiMsg& msg, int64_t triggerSample,
+void Sparkles::HandleMidiTrigger(const IMidiMsg& msg, int64_t triggerSample, int64_t timelineSample,
                                   const sparkle_core::DetectionParams& detection,
                                   const sparkle_core::SparkleParams& sparkleParams,
                                   sparkle_core::OutputMode outputMode, double bpm, double sampleRate)
@@ -543,14 +544,14 @@ void Sparkles::HandleMidiTrigger(const IMidiMsg& msg, int64_t triggerSample,
   if (isNoteOn) {
     const bool fireUp = triggerType == sparkle_core::TriggerType::Up || triggerType == sparkle_core::TriggerType::Both;
     if (fireUp && msg.Velocity() >= detection.minVelocity)
-      FireSprinkle(note, triggerSample, sparkleParams, outputMode, bpm, sampleRate);
+      FireSprinkle(note, triggerSample, timelineSample, sparkleParams, outputMode, bpm, sampleRate);
   }
   else { // isNoteOff -- gate on the velocity the note was struck with, not the note-off's own byte.
     const int heldVelocity = mHeldNoteVelocity[note];
     mHeldNoteVelocity[note] = -1;
     const bool fireDown = triggerType == sparkle_core::TriggerType::Down || triggerType == sparkle_core::TriggerType::Both;
     if (fireDown && heldVelocity >= detection.minVelocity)
-      FireSprinkle(note, triggerSample, sparkleParams, outputMode, bpm, sampleRate);
+      FireSprinkle(note, triggerSample, timelineSample, sparkleParams, outputMode, bpm, sampleRate);
   }
 }
 
@@ -651,7 +652,7 @@ void Sparkles::ConvertTimeMagnitudeUnit(int magnitudeParamIdx, int unitParamIdx)
   SetParameterValue(magnitudeParamIdx, GetParam(magnitudeParamIdx)->ToNormalized(newValue));
 }
 
-void Sparkles::FireSprinkle(int triggerNote, int64_t triggerSample, const sparkle_core::SparkleParams& params,
+void Sparkles::FireSprinkle(int triggerNote, int64_t triggerSample, int64_t timelineSample, const sparkle_core::SparkleParams& params,
                             sparkle_core::OutputMode outputMode, double bpm, double sampleRate)
 {
   mTriggerSender.PushData(ISenderData<1>(kCtrlTagTriggerLight, std::array<float, 1>{ 1.f }));
@@ -665,7 +666,7 @@ void Sparkles::FireSprinkle(int triggerNote, int64_t triggerSample, const sparkl
   if (mNumActiveSprinkles >= kMaxSimultaneousSprinkles)
     return;
 
-  sparkle_core::SparkleGenerator::Generate(mNoteMatrix, params, triggerNote, bpm, sampleRate, mScratchEvents);
+  sparkle_core::SparkleGenerator::Generate(mNoteMatrix, params, triggerNote, bpm, sampleRate, mScratchEvents, timelineSample);
 
   const bool sendMidi = outputMode != sparkle_core::OutputMode::Audio;
   const bool sendAudio = outputMode != sparkle_core::OutputMode::Midi;
@@ -725,6 +726,11 @@ void Sparkles::ProcessBlock(sample** inputs, sample** outputs, int nFrames)
   const double bpm = GetTempo();
   const double sampleRate = GetSampleRate();
   const int64_t blockStart = mBlockStartSample;
+  // Host transport position at this block's start, in samples since the project's own origin --
+  // distinct from `blockStart` above, which only counts samples since this plugin instance's last
+  // OnReset and has no relation to where the project's playhead actually is. -1 when the host
+  // doesn't report one (e.g. no transport, some hosts/formats); see the per-sample fallback below.
+  const double hostSamplePos = GetSamplePos();
 
   mPitchTracker.SetConfidenceThreshold(snapshot.detection.confidence);
   const int64_t triggerTimeoutSamples = static_cast<int64_t>(std::llround(kTriggerTimeoutSeconds * sampleRate));
@@ -734,6 +740,14 @@ void Sparkles::ProcessBlock(sample** inputs, sample** outputs, int nFrames)
   const bool audioTriggerEnabled = snapshot.detection.detectionMode != sparkle_core::DetectionMode::Midi;
 
   for (int s = 0; s < nFrames; s++) {
+    // This sample's absolute project-timeline position, for PanMode::Random's seed (§7.6) --
+    // falls back to the free-running block counter (today's behavior) when the host doesn't
+    // report a valid transport position, which loses the cross-playthrough guarantee but is no
+    // worse than before this feature existed.
+    const int64_t timelineSample = hostSamplePos >= 0.0
+      ? static_cast<int64_t>(std::llround(hostSamplePos)) + s
+      : blockStart + s;
+
     // Drain every MIDI message queued (by ProcessMidiMsg) for this exact sample offset before
     // doing anything else this sample -- keeps MIDI-triggered sprinkles sample-accurate rather
     // than all landing at block start.
@@ -741,7 +755,7 @@ void Sparkles::ProcessBlock(sample** inputs, sample** outputs, int nFrames)
       const IMidiMsg& msg = mMidiQueue.Peek();
       if (msg.mOffset > s)
         break;
-      HandleMidiTrigger(msg, blockStart + s, snapshot.detection, snapshot.sparkle, snapshot.outputMode, bpm, sampleRate);
+      HandleMidiTrigger(msg, blockStart + s, timelineSample, snapshot.detection, snapshot.sparkle, snapshot.outputMode, bpm, sampleRate);
       mMidiQueue.Remove();
     }
 
@@ -778,7 +792,7 @@ void Sparkles::ProcessBlock(sample** inputs, sample** outputs, int nFrames)
       if (mPitchTracker.HasConfidentNote() &&
           mPitchTracker.LastConfidentTime() + sparkle_core::PitchTracker::kHopSamples >= mTriggerArmTime) {
         mTriggerPending = false;
-        FireSprinkle(mPitchTracker.LastConfidentNote(), blockStart + s, snapshot.sparkle, snapshot.outputMode, bpm, sampleRate);
+        FireSprinkle(mPitchTracker.LastConfidentNote(), blockStart + s, timelineSample, snapshot.sparkle, snapshot.outputMode, bpm, sampleRate);
       }
       else if (mPitchTracker.Now() >= mTriggerDeadline) {
         mTriggerPending = false; // never got confident about the pitch -- drop the trigger silently
@@ -803,7 +817,7 @@ void Sparkles::ProcessBlock(sample** inputs, sample** outputs, int nFrames)
         // confidently playing just before the crossing) rather than analyzing post-crossing
         // audio. Nothing confident within the hold window means we don't know the note: drop.
         if (mPitchTracker.HasConfidentNote())
-          FireSprinkle(mPitchTracker.LastConfidentNote(), blockStart + s, snapshot.sparkle, snapshot.outputMode, bpm, sampleRate);
+          FireSprinkle(mPitchTracker.LastConfidentNote(), blockStart + s, timelineSample, snapshot.sparkle, snapshot.outputMode, bpm, sampleRate);
       }
       else if (fireUp) {
         // The note is just starting -- the analysis buffer is mid-transient, so defer to the

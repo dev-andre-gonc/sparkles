@@ -62,7 +62,7 @@ SPARKLE_PARAM_ENUM  (kParamOutputMode, "Output Mode", 1, "Audio", "MIDI", "Both"
 // What input(s) can arm a trigger.
 SPARKLE_PARAM_ENUM  (kParamDetectionMode, "Detection Mode", 1, "Audio", "MIDI", "Both")
 SPARKLE_PARAM_ENUM  (kParamTriggerOn,     "Trigger On", 0, "Up", "Down", "Both")
-SPARKLE_PARAM_DOUBLE(kParamThreshold,     "Audio Threshold", 50., 0., 100., 0.01, "%")
+SPARKLE_PARAM_DOUBLE(kParamThreshold,     "Audio Threshold", 0.1, 0., 100., 0.01, "%")
 // MIDI equivalent of Threshold above: a note-on/off must meet this velocity to arm a trigger when
 // Detection Mode is MIDI or Both (§2). Note-off velocity is usually 0 on real controllers, so this
 // is checked against the velocity the note was originally played at, not the note-off's own data
@@ -72,7 +72,7 @@ SPARKLE_PARAM_INT   (kParamVelocityDetect, "Min Trigger Velocity", 63, 1, 127, "
 // every sample. Expressed directly in this 0-1 coefficient space (not a %) since that's exactly
 // what DetectionParams::reactiveness and the formula above consume -- no unit conversion needed
 // at the read site.
-SPARKLE_PARAM_DOUBLE(kParamReactiveness, "Envelope Reactiveness", 0.01, 0., 1., 0.0001, "")
+SPARKLE_PARAM_DOUBLE_CURVE(kParamReactiveness, "Envelope Reactiveness", 0.001, 0., 1., 0.0001, "", 4.)
 // Minimum normalized pitch-tracker confidence (core/PitchTracker.h's autocorrelation score) a
 // trigger needs before it fires -- crossings whose note can't be identified at least this
 // confidently are dropped rather than guessed at. Same 0-1 space the tracker scores in, so no
@@ -180,6 +180,12 @@ SPARKLE_PARAM_DOUBLE(kParamPhaseSm, "Phase Sm", 0.2, 0.1, 2., 0.01, "x")
 
 SPARKLE_PARAM_ENUM(kParamRayRotation,   "Ray Rotation", 0, "L", "R")
 SPARKLE_PARAM_ENUM(kParamRayRotationRm, "Ray Rotation Rm", 1, "Keep", "Invert")
+
+// User-picked, not a "randomize" action -- combined with the trigger's project-timeline position
+// to seed PanMode::Random (see sparkle_core::SparkleGenerator::PanRandomUnit), so the same seed
+// dialed back in always reproduces the same pan pattern for a given trigger/timeline position.
+// Only used when Panning = Random.
+SPARKLE_PARAM_INT(kParamSeed, "Seed", 0, 0, 999999, "")
 
 // --- §7.7 Synth (Audio Output Mode only) ------------------------------------------------------------
 // Continuous morph across the four classic waveforms: 0 = pure Sine, 1 = pure Triangle, 2 = pure

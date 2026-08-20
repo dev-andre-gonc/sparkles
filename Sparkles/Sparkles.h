@@ -89,7 +89,10 @@ private:
   // below). Resolves velocity gating and Up/Down/Both trigger-type routing the same way the audio
   // envelope crossings below do, then fires straight through FireSprinkle -- unlike the audio path,
   // the note is already known exactly, so there's no pitch tracker/confidence step to wait on.
-  void HandleMidiTrigger(const IMidiMsg& msg, int64_t triggerSample, const sparkle_core::DetectionParams& detection,
+  // `timelineSample` is the trigger's absolute position in the DAW project timeline (host
+  // transport, not `triggerSample`'s plugin-internal scheduling clock) -- see FireSprinkle.
+  void HandleMidiTrigger(const IMidiMsg& msg, int64_t triggerSample, int64_t timelineSample,
+                          const sparkle_core::DetectionParams& detection,
                           const sparkle_core::SparkleParams& sparkleParams, sparkle_core::OutputMode outputMode,
                           double bpm, double sampleRate);
 
@@ -132,7 +135,12 @@ private:
   // under the current Key/Scale + note matrix, §5) -- the light reports "a trigger resolved",
   // not "a sprinkle sounded", so an out-of-scale note still gets visible feedback that it was
   // heard and rejected by the matrix rather than looking like detection missed it entirely.
-  void FireSprinkle(int triggerNote, int64_t triggerSample, const sparkle_core::SparkleParams& params,
+  // `triggerSample` anchors this sprinkle's own event scheduling (mEventScheduler/mFlashScheduler/
+  // mSynthEngine, all clocked off ProcessBlock's free-running mBlockStartSample). `timelineSample`
+  // is a separate concept -- the trigger's absolute position in the DAW's project timeline (from
+  // the host's transport, when available) -- fed only to SparkleGenerator::Generate() so
+  // PanMode::Random can reproduce the same pan across playthroughs of the same project (§7.6).
+  void FireSprinkle(int triggerNote, int64_t triggerSample, int64_t timelineSample, const sparkle_core::SparkleParams& params,
                     sparkle_core::OutputMode outputMode, double bpm, double sampleRate);
 
   // Set from the UI thread by the "Shut Up" button's action function (see mLayoutFunc), consumed
