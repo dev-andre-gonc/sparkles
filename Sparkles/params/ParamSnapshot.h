@@ -22,7 +22,7 @@
 // doesn't offer a clean way to exclude specific IParams from preset load/save. So the matrix lives
 // only in sparkle_core::NoteMatrix, to be persisted directly via the plugin's own state
 // (de)serialization, entirely outside the preset mechanism (not yet implemented). key_root/
-// key_scale (§5.1) ARE ordinary IParams below -- they're cheap, few, and worth having
+// key_scale/key_mode (§5.1) ARE ordinary IParams below -- they're cheap, few, and worth having
 // host-automatable even though, per §8, presets should eventually be made to leave them alone too
 // (not yet implemented). Sparkles::OnParamChange regenerates the matrix from them directly (see
 // sparkle_core::ApplyKeyScale), so they don't need to be read here.
@@ -47,6 +47,7 @@ namespace sparkle_params
     // takes a NoteMatrix, not these), so they don't belong nested under `sparkle` above.
     int keyRoot = 0; // sparkle_core::PitchClass, or kNumPitchClasses for the "Trigger Note" option
     sparkle_core::Scale keyScale = sparkle_core::Scale::Ionian;
+    sparkle_core::ChordMode keyMode = sparkle_core::ChordMode::FullScale;
   };
 
   inline sparkle_core::TimeParam ReadTimeParam(const iplug::Plugin& plugin, int valueParamId, int unitParamId)
@@ -139,6 +140,7 @@ namespace sparkle_params
 
     snapshot.keyRoot = plugin.GetParam(kParamKeyRoot)->Int();
     snapshot.keyScale = static_cast<sparkle_core::Scale>(plugin.GetParam(kParamKeyScale)->Int());
+    snapshot.keyMode = static_cast<sparkle_core::ChordMode>(plugin.GetParam(kParamKeyMode)->Int());
 
     return snapshot;
   }

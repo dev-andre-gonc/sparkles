@@ -233,6 +233,64 @@ TEST(NoteMatrix_ApplyKeyScale_DoesNotTouchTheEnabledGate)
   CHECK(matrix.EligibleNotes(70 /* A#4 */, 60, 71) == std::vector<int>{ 70 });
 }
 
+TEST(NoteMatrix_ApplyKeyScale_Triad_BuildsChordFromColumnsOwnDegree)
+{
+  // §5.1 Mode: C major, Triad -- the D column's eligible rows are D, F, A (whatever triad fits
+  // within C major starting on D), not the full C major scale.
+  NoteMatrix matrix;
+  ApplyKeyScale(matrix, kC, Scale::Ionian, ChordMode::Triad);
+
+  for (int row = 0; row < kNumPitchClasses; ++row)
+    CHECK(matrix.GetCell(kD, row) == (row == kD || row == kF || row == kA));
+}
+
+TEST(NoteMatrix_ApplyKeyScale_PowerChord_OmitsTheThird)
+{
+  NoteMatrix matrix;
+  ApplyKeyScale(matrix, kC, Scale::Ionian, ChordMode::PowerChord);
+
+  for (int row = 0; row < kNumPitchClasses; ++row)
+    CHECK(matrix.GetCell(kD, row) == (row == kD || row == kA));
+}
+
+TEST(NoteMatrix_ApplyKeyScale_Root_OnlyTriggersOwnPitchClass)
+{
+  NoteMatrix matrix;
+  ApplyKeyScale(matrix, kC, Scale::Ionian, ChordMode::Root);
+
+  const bool inScale[kNumPitchClasses] = {
+    /*A*/ true, /*A#*/ false, /*B*/ true, /*C*/ true, /*C#*/ false, /*D*/ true,
+    /*D#*/ false, /*E*/ true, /*F*/ true, /*F#*/ false, /*G*/ true, /*G#*/ false
+  };
+
+  for (int column = 0; column < kNumPitchClasses; ++column)
+    for (int row = 0; row < kNumPitchClasses; ++row)
+      CHECK(matrix.GetCell(column, row) == (inScale[column] && row == column));
+}
+
+TEST(NoteMatrix_ApplyKeyScale_OutOfScaleColumnStaysEmptyRegardlessOfChordMode)
+{
+  // A column outside the scale gets zero eligible rows no matter how wide the chord extension --
+  // same gate as ChordMode::FullScale's inScale[column] term.
+  NoteMatrix matrix;
+  ApplyKeyScale(matrix, kC, Scale::Ionian, ChordMode::Thirteenth); // A# is out of C major
+
+  for (int row = 0; row < kNumPitchClasses; ++row)
+    CHECK(matrix.GetCell(kASharp, row) == false);
+}
+
+TEST(NoteMatrix_ApplyKeyScalePerColumn_Triad_UsesColumnAsOwnRoot)
+{
+  // "Trigger Note" root mode + Triad: every column builds a triad using its own pitch class as
+  // root -- e.g. Ionian rooted at D gives D, F#, A (D major triad), unlike ApplyKeyScale's
+  // fixed-C-major D triad (D, F, A) above.
+  NoteMatrix matrix;
+  ApplyKeyScalePerColumn(matrix, Scale::Ionian, ChordMode::Triad);
+
+  for (int row = 0; row < kNumPitchClasses; ++row)
+    CHECK(matrix.GetCell(kD, row) == (row == kD || row == kFSharp || row == kA));
+}
+
 TEST(NoteMatrix_ApplyKeyScalePerColumn_EachColumnUsesItsOwnRoot)
 {
   // Major (Ionian) degree offsets from the root: {0, 2, 4, 5, 7, 9, 11}. With "Trigger Note" as

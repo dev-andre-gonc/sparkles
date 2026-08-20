@@ -55,14 +55,16 @@ SPARKLE_PARAM_DOUBLE(kParamGain, "Passthrough", 0., 0., 100., 0.01, "%")
 // What output path(s) a fired sprinkle's events go to. Switching to Audio/Both opts into
 // core/SynthEngine.h rendering sparkles directly to the plugin's own audio output instead of (or
 // alongside) sending them out as MIDI. Same option order as Detection Mode below for a consistent
-// UI, even though the two are independent axes (input trigger source vs. output path).
-SPARKLE_PARAM_ENUM  (kParamOutputMode, "Output Mode", 1, "Audio", "MIDI", "Both")
+// UI, even though the two are independent axes (input trigger source vs. output path). Defaults to
+// Both so sound is audible out of the box regardless of whether a receiving MIDI instrument is
+// wired up -- also excluded from the Presets button's scope (docs/SPEC.md §8) for the same reason.
+SPARKLE_PARAM_ENUM  (kParamOutputMode, "Output Mode", 2, "Audio", "MIDI", "Both")
 
 // --- §2 Detection stage ---------------------------------------------------------------------------
-// What input(s) can arm a trigger.
-SPARKLE_PARAM_ENUM  (kParamDetectionMode, "Detection Mode", 1, "Audio", "MIDI", "Both")
+// What input(s) can arm a trigger. Defaults to Both, same rationale as Output Mode above.
+SPARKLE_PARAM_ENUM  (kParamDetectionMode, "Detection Mode", 2, "Audio", "MIDI", "Both")
 SPARKLE_PARAM_ENUM  (kParamTriggerOn,     "Trigger On", 0, "Up", "Down", "Both")
-SPARKLE_PARAM_DOUBLE(kParamThreshold,     "Audio Threshold", 0.1, 0., 100., 0.01, "%")
+SPARKLE_PARAM_DOUBLE(kParamThreshold,     "Audio Threshold", 20., 0., 100., 0.01, "%")
 // MIDI equivalent of Threshold above: a note-on/off must meet this velocity to arm a trigger when
 // Detection Mode is MIDI or Both (§2). Note-off velocity is usually 0 on real controllers, so this
 // is checked against the velocity the note was originally played at, not the note-off's own data
@@ -85,7 +87,7 @@ SPARKLE_PARAM_INT(kParamMinNote, "Min Detection Note", sparkle_params::kDefaultM
 SPARKLE_PARAM_INT(kParamMaxNote, "Max Detection Note", sparkle_params::kDefaultMaxTriggerNote, sparkle_params::kMinTriggerableNote, sparkle_params::kMaxTriggerableNote, "")
 
 // --- §5.1 Key + scale quick-fill --------------------------------------------------------------------
-// Sparkles::OnParamChange regenerates the note matrix from these two via sparkle_core::ApplyKeyScale.
+// Sparkles::OnParamChange regenerates the note matrix from these three via sparkle_core::ApplyKeyScale.
 // Excluding them from presets per §8 is still future work.
 // The first 12 options' order matches sparkle_core::PitchClass exactly, see core/NoteMatrix.h. The
 // trailing "Trigger Note" option is a 13th, non-PitchClass value (index kNumPitchClasses == 12):
@@ -97,15 +99,22 @@ SPARKLE_PARAM_ENUM(kParamKeyRoot, "Key Root", 3, "A", "A#", "B", "C", "C#", "D",
 SPARKLE_PARAM_ENUM(kParamKeyScale, "Key Scale", 0,
   "Ionian", "Dorian", "Phrygian", "Lydian", "Mixolydian", "Aeolian", "Locrian",
   "Harmonic Minor", "Melodic Minor", "Major Pentatonic", "Minor Pentatonic", "Blues", "Chromatic")
+// Further restricts each in-scale column's eligible rows to a chord stacked in thirds from that
+// column's own scale degree, rather than every scale tone -- e.g. Triad on a D column within C
+// major yields D, F, A (whatever triad fits the scale starting on D), not the full C major set.
+// Default (0) is Full Scale, i.e. the original quick-fill behavior with no chord restriction.
+// Option order matches sparkle_core::ChordMode exactly, see core/NoteMatrix.h.
+SPARKLE_PARAM_ENUM(kParamKeyMode, "Key Mode", 0,
+  "Full Scale", "Root", "Power Chord", "Sus2", "Sus4", "Triad", "Seventh", "Ninth", "Eleventh", "Thirteenth")
 
 // --- §7.1 Structure --------------------------------------------------------------------------------
 SPARKLE_PARAM_INT        (kParamNRays,             "Num Rays", 3, 1, 16, "")
-SPARKLE_PARAM_INT        (kParamNSparklesPerRay,   "Sparkles Per Ray", 4, 1, 32, "")
-SPARKLE_PARAM_DOUBLE_CURVE(kParamNSparklesPerRayRm, "Sparkles Per Ray Rm", 1.2, 0.1, 4., 0.01, "x", 2.)
+SPARKLE_PARAM_INT        (kParamNSparklesPerRay,   "Sparkles Per Ray", 3, 1, 32, "")
+SPARKLE_PARAM_DOUBLE_CURVE(kParamNSparklesPerRayRm, "Sparkles Per Ray Rm", 1., 0.1, 4., 0.01, "x", 2.)
 SPARKLE_PARAM_INT        (kParamRangeMin,          "Min Output Note", 48, 0, 127, "")
 SPARKLE_PARAM_INT        (kParamRangeMax,          "Max Output Note", 96, 0, 127, "")
 // Option order matches sparkle_core::WrapMode exactly, see core/NoteMatrix.h.
-SPARKLE_PARAM_ENUM       (kParamWrapMode, "Wrap Mode", 2, "Mirror", "Around", "Stop")
+SPARKLE_PARAM_ENUM       (kParamWrapMode, "Wrap Mode", 0, "Mirror", "Around", "Stop")
 
 // --- §7.2 Trigger-to-sprinkle offset ----------------------------------------------------------------
 // Pre Delay/Duration/Ray Delay/Delay below share one range, [0, 6000], with a steep pow curve (4):
@@ -130,33 +139,36 @@ SPARKLE_PARAM_ENUM  (kParamPreDelayUnit, "Pre Delay Unit", 0, "Beats", "ms")
 // starting point, not which matrix column governs eligibility -- that's still the trigger note's
 // own column. See sparkle_core::SparkleGenerator::Generate's `anchorNote` and
 // sparkle_core::NoteMatrix::Walk's two-note overload.
-SPARKLE_PARAM_INT   (kParamPreInterval, "Pre Interval", 0, -48, 48, "")
+SPARKLE_PARAM_INT   (kParamPreInterval, "Pre Interval", 12, -48, 48, "")
 
 // --- §7.3 Base per-sparkle properties, evaluated directly --------------------------------------------
 SPARKLE_PARAM_DOUBLE      (kParamVelocity,   "Velocity", 63., 1., 127., 1., "")
-SPARKLE_PARAM_DOUBLE_CURVE(kParamLoudnessRm, "Velocity Rm", 0.7, 0.1, 4., 0.01, "x", 2.)
-SPARKLE_PARAM_DOUBLE_CURVE(kParamLoudnessSm, "Velocity Sm", 0.8, 0.1, 4., 0.01, "x", 2.)
+SPARKLE_PARAM_DOUBLE_CURVE(kParamLoudnessRm, "Velocity Rm", 1., 0.1, 4., 0.01, "x", 2.)
+SPARKLE_PARAM_DOUBLE_CURVE(kParamLoudnessSm, "Velocity Sm", 1., 0.1, 4., 0.01, "x", 2.)
 
-SPARKLE_PARAM_DOUBLE_CURVE(kParamDuration,     "Duration", 0.25, 0., 6000., 0.001, "", 4.)
+// Default 0.0625 beats = a 64th note (see ui/TimeMagnitudeControl.h's kNoteValues).
+SPARKLE_PARAM_DOUBLE_CURVE(kParamDuration,     "Duration", 0.0625, 0., 6000., 0.001, "", 4.)
 SPARKLE_PARAM_ENUM        (kParamDurationUnit, "Duration Unit", 0, "Beats", "ms")
 SPARKLE_PARAM_DOUBLE_CURVE(kParamDurationRm,   "Duration Rm", 1., 0.1, 4., 0.01, "x", 2.)
-SPARKLE_PARAM_DOUBLE_CURVE(kParamDurationSm,   "Duration Sm", 0.9, 0.1, 4., 0.01, "x", 2.)
+SPARKLE_PARAM_DOUBLE_CURVE(kParamDurationSm,   "Duration Sm", 1., 0.1, 4., 0.01, "x", 2.)
 
 // --- §7.4 Timing chain, cumulative -------------------------------------------------------------------
-SPARKLE_PARAM_DOUBLE_CURVE(kParamRayDelay,     "Ray Delay", 1., 0., 6000., 0.001, "", 4.)
+// Default 0.25 beats = a 16th note (see ui/TimeMagnitudeControl.h's kNoteValues).
+SPARKLE_PARAM_DOUBLE_CURVE(kParamRayDelay,     "Ray Delay", 0.25, 0., 6000., 0.001, "", 4.)
 SPARKLE_PARAM_ENUM        (kParamRayDelayUnit, "Ray Delay Unit", 0, "Beats", "ms")
 SPARKLE_PARAM_DOUBLE_CURVE(kParamRayDelayRm,   "Ray Delay Rm", 1., 0.1, 4., 0.01, "x", 2.)
 
-SPARKLE_PARAM_DOUBLE_CURVE(kParamDelay,     "Delay", 0.5, 0., 6000., 0.001, "", 4.)
+// Default 0.0625 beats = a 64th note (see ui/TimeMagnitudeControl.h's kNoteValues).
+SPARKLE_PARAM_DOUBLE_CURVE(kParamDelay,     "Delay", 0.0625, 0., 6000., 0.001, "", 4.)
 SPARKLE_PARAM_ENUM        (kParamDelayUnit, "Delay Unit", 0, "Beats", "ms")
-SPARKLE_PARAM_DOUBLE_CURVE(kParamDelayRm,   "Delay Rm", 0.9, 0.1, 4., 0.01, "x", 2.)
-SPARKLE_PARAM_DOUBLE_CURVE(kParamDelaySm,   "Delay Sm", 1.1, 0.1, 4., 0.01, "x", 2.)
+SPARKLE_PARAM_DOUBLE_CURVE(kParamDelayRm,   "Delay Rm", 1., 0.1, 4., 0.01, "x", 2.)
+SPARKLE_PARAM_DOUBLE_CURVE(kParamDelaySm,   "Delay Sm", 1., 0.1, 4., 0.01, "x", 2.)
 
 // --- §7.5 Pitch chain, cumulative --------------------------------------------------------------------
 // Unlike Pre Interval above, these step through the trigger note's eligible-notes list (§7.5) --
 // still gated by the note matrix, not a raw semitone transpose.
 SPARKLE_PARAM_INT         (kParamRayInterval,   "Ray Interval", 2, -48, 48, "")
-SPARKLE_PARAM_DOUBLE_CURVE(kParamRayIntervalRm, "Ray Interval Rm", 0.9, -4., 4., 0.01, "x", 2.)
+SPARKLE_PARAM_DOUBLE_CURVE(kParamRayIntervalRm, "Ray Interval Rm", 1., -4., 4., 0.01, "x", 2.)
 
 SPARKLE_PARAM_INT         (kParamInterval,   "Interval", 1, -48, 48, "")
 SPARKLE_PARAM_DOUBLE_CURVE(kParamIntervalRm, "Interval Rm", 1., -4., 4., 0.01, "x", 2.)
@@ -175,8 +187,8 @@ SPARKLE_PARAM_DOUBLE_CURVE(kParamWidthSm, "Width Sm", 1., 0.1, 4., 0.01, "x", 2.
 // so these stay plain linear step sizes rather than a pow-curved multiplier. Any value pushed
 // outside [0,1) wraps to its decimal part naturally via Wave()'s own frac computation.
 SPARKLE_PARAM_DOUBLE(kParamPhase,   "Phase", 0., 0., 1., 0.001, "")
-SPARKLE_PARAM_DOUBLE(kParamPhaseRm, "Phase Rm", 0.5, 0.1, 2., 0.01, "x")
-SPARKLE_PARAM_DOUBLE(kParamPhaseSm, "Phase Sm", 0.2, 0.1, 2., 0.01, "x")
+SPARKLE_PARAM_DOUBLE(kParamPhaseRm, "Phase Rm", 1., 0.1, 2., 0.01, "x")
+SPARKLE_PARAM_DOUBLE(kParamPhaseSm, "Phase Sm", 1., 0.1, 2., 0.01, "x")
 
 SPARKLE_PARAM_ENUM(kParamRayRotation,   "Ray Rotation", 0, "L", "R")
 SPARKLE_PARAM_ENUM(kParamRayRotationRm, "Ray Rotation Rm", 1, "Keep", "Invert")

@@ -15,6 +15,7 @@
 
 #if IPLUG_EDITOR
 #include "ui/EnvelopeMeterControl.h"
+#include "ui/ModifierValueControl.h"
 #include "ui/NoteBarsControl.h"
 #include "ui/NoteMatrixControl.h"
 #include "ui/TimeMagnitudeControl.h"
@@ -50,6 +51,19 @@ enum ECtrlTags
   kCtrlTagShutUp,          // kills all in-flight sprinkles/rays/sparkles, see mShutUpRequested
   kCtrlTagKeyRoot,         // §5.1 key/scale quick-fill, hand-placed beside kCtrlTagNoteMatrix
   kCtrlTagKeyScale,
+  kCtrlTagKeyMode,
+  kCtrlTagQuickGuideImage, // placeholder for the Quick Guide tab's static image, see mLayoutFunc
+
+  // One tag per tab-selector button plus the Presets button -- always visible regardless of
+  // mActiveTab, unlike everything below. Currently plain IVButtonControls; see CLAUDE.md/mLayoutFunc
+  // for where to swap these for PNG bitmap-frame controls once art exists.
+  kCtrlTagTabQuickGuide,
+  kCtrlTagTabGeneral,
+  kCtrlTagTabDetection,
+  kCtrlTagTabPitchTiming,
+  kCtrlTagTabNoteMatrix,
+  kCtrlTagTabSynth,
+  kCtrlTagPresets,
 
   // Every param in kParamGroups (see Sparkles.cpp) gets one tag here, in group/table order,
   // followed by one tag per group's labelled IVGroupControl frame -- both runs are assigned at
@@ -68,8 +82,28 @@ public:
 
 #if IPLUG_EDITOR
   bool OnHostRequestingSupportedViewConfiguration(int width, int height) override { return true; }
+
+private:
+  // Which of EUITab (see Sparkles.cpp's anonymous namespace) is currently shown -- plain int here
+  // so this header doesn't need EUITab's definition, cast at the few call sites that touch it.
+  // Purely a UI presentation choice, not persisted/automatable.
+  int mActiveTab = 1; // EUITab::General
+
+  // Click-through index into the fixed factory preset list (docs/SPEC.md §8) -- the Presets button
+  // has no dropdown/menu, each click just advances to (mPresetIndex + 1) % kNumFactoryPresets and
+  // applies it, updating its own label to the newly-active preset's name.
+  int mPresetIndex = 0;
+
+  // Applies factory preset `idx`'s param values (General/Pitch&Timing/Synth tabs plus Key Mode,
+  // per docs/SPEC.md §8 -- Key Root/Scale stay untouched) via SetParameterValue, then resyncs every
+  // visible control bound to one of those params so the knobs update immediately instead of only on
+  // the next redraw. SetParameterValue's own OnParamChange call regenerates the note matrix from
+  // the newly-applied Key Mode exactly as a manual Mode-dropdown change would, so it's never stale.
+  void ApplyPreset(int idx);
+
+public:
 #endif
-  
+
 #if IPLUG_DSP // http://bit.ly/2S64BDd
   void ProcessBlock(sample** inputs, sample** outputs, int nFrames) override;
   void ProcessMidiMsg(const IMidiMsg& msg) override;
@@ -185,7 +219,7 @@ private:
   int64_t mTriggerDeadline = 0;
 
   // §5 note-eligibility matrix, edited directly by ui/NoteMatrixControl.h and regenerated from
-  // kParamKeyRoot/kParamKeyScale in OnParamChange (§5.1). Not persisted yet across plugin
+  // kParamKeyRoot/kParamKeyScale/kParamKeyMode in OnParamChange (§5.1). Not persisted yet across plugin
   // save/reload (see params/ParamSnapshot.h's header comment) -- default-constructed, which leaves
   // every cell/row/column enabled.
   sparkle_core::NoteMatrix mNoteMatrix;

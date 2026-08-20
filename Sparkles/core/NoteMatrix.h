@@ -45,6 +45,23 @@ namespace sparkle_core
     Stop
   };
 
+  // §5.1 Mode: restricts the key/scale quick-fill's per-column eligible rows to a chord built by
+  // stacking thirds (i.e. every other scale degree) from that column's own scale degree, instead of
+  // every scale tone. Order matches params/ParamList.h's kParamKeyMode option strings exactly.
+  enum class ChordMode
+  {
+    FullScale,   // every scale tone (original quick-fill behavior, no chord restriction)
+    Root,        // just the trigger note's own pitch class
+    PowerChord,  // root + 5th
+    Sus2,        // root + 2nd + 5th
+    Sus4,        // root + 4th + 5th
+    Triad,       // root + 3rd + 5th
+    Seventh,     // triad + 7th
+    Ninth,       // 7th chord + 9th
+    Eleventh,    // 9th chord + 11th
+    Thirteenth   // 11th chord + 13th
+  };
+
   // Scale choices for the §5.1 key/scale quick-fill, which regenerates the whole matrix from
   // music theory. Order matches params/ParamList.h's kParamKeyScale option strings exactly.
   enum class Scale
@@ -230,6 +247,38 @@ namespace sparkle_core
       { 6, { 0, 3, 5, 6, 7, 10 } },         // Blues
       { 12, { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 } }, // Chromatic
     };
+
+    // Scale-degree-index offsets from a chord's root degree, stepping by 2 ("thirds") per §5.1
+    // Mode. Indexed modulo a scale's own `numDegrees` (see ApplyKeyScale/ApplyKeyScalePerColumn),
+    // so e.g. a 5-note pentatonic's Thirteenth just repeats earlier pitch classes rather than
+    // reading out of bounds -- harmless since a matrix cell is boolean. Not used for FullScale,
+    // which has no root-relative restriction to apply.
+    inline const std::vector<int>& ChordDegreeSteps(ChordMode mode)
+    {
+      static const std::vector<int> kRoot = { 0 };
+      static const std::vector<int> kPowerChord = { 0, 4 };
+      static const std::vector<int> kSus2 = { 0, 1, 4 };
+      static const std::vector<int> kSus4 = { 0, 3, 4 };
+      static const std::vector<int> kTriad = { 0, 2, 4 };
+      static const std::vector<int> kSeventh = { 0, 2, 4, 6 };
+      static const std::vector<int> kNinth = { 0, 2, 4, 6, 8 };
+      static const std::vector<int> kEleventh = { 0, 2, 4, 6, 8, 10 };
+      static const std::vector<int> kThirteenth = { 0, 2, 4, 6, 8, 10, 12 };
+
+      switch (mode)
+      {
+        case ChordMode::Root: return kRoot;
+        case ChordMode::PowerChord: return kPowerChord;
+        case ChordMode::Sus2: return kSus2;
+        case ChordMode::Sus4: return kSus4;
+        case ChordMode::Triad: return kTriad;
+        case ChordMode::Seventh: return kSeventh;
+        case ChordMode::Ninth: return kNinth;
+        case ChordMode::Eleventh: return kEleventh;
+        case ChordMode::Thirteenth:
+        default: return kThirteenth;
+      }
+    }
   }
 
   // §5.1 key/scale quick-fill: regenerates the whole matrix from music theory, overwriting whatever
@@ -245,7 +294,13 @@ namespace sparkle_core
   // cell state, silently ignoring the manual edit. Driving cells only means every trigger column's
   // eligibility is always exactly "whatever its cells currently say", which is what NoteMatrixControl
   // -- and every other write path -- also assumes.
-  inline void ApplyKeyScale(NoteMatrix& matrix, int keyRoot, Scale scale)
+  // `chordMode` further restricts each in-scale column's eligible rows to a chord stacked in
+  // thirds from that column's own scale degree (§5.1 Mode) rather than every scale tone --
+  // defaults to FullScale, the original (pre-Mode) behavior, so existing callers/tests need no
+  // change. E.g. with keyRoot=C, scale=Ionian, chordMode=Triad: column D (scale degree 1) gets
+  // degrees {1, 3, 5} = D, F, A -- the triad built on D within C major. A column outside the scale
+  // gets zero eligible rows regardless of chordMode, same as FullScale's inScale[column] gate.
+  inline void ApplyKeyScale(NoteMatrix& matrix, int keyRoot, Scale scale, ChordMode chordMode = ChordMode::FullScale)
   {
     const detail::ScalePattern& pattern = detail::kScalePatterns[static_cast<int>(scale)];
 
@@ -253,9 +308,41 @@ namespace sparkle_core
     for (int i = 0; i < pattern.numDegrees; ++i)
       inScale[(keyRoot + pattern.semitones[i]) % kNumPitchClasses] = true;
 
+    if (chordMode == ChordMode::FullScale)
+    {
+      for (int column = 0; column < kNumPitchClasses; ++column)
+        for (int row = 0; row < kNumPitchClasses; ++row)
+          matrix.SetCell(column, row, inScale[column] && inScale[row]);
+      return;
+    }
+
+    const std::vector<int>& steps = detail::ChordDegreeSteps(chordMode);
     for (int column = 0; column < kNumPitchClasses; ++column)
+    {
+      int columnDegree = -1;
+      for (int i = 0; i < pattern.numDegrees; ++i)
+      {
+        if ((keyRoot + pattern.semitones[i]) % kNumPitchClasses == column)
+        {
+          columnDegree = i;
+          break;
+        }
+      }
+
+      if (columnDegree < 0)
+      {
+        for (int row = 0; row < kNumPitchClasses; ++row)
+          matrix.SetCell(column, row, false);
+        continue;
+      }
+
+      std::array<bool, kNumPitchClasses> chordTones{};
+      for (int step : steps)
+        chordTones[(keyRoot + pattern.semitones[(columnDegree + step) % pattern.numDegrees]) % kNumPitchClasses] = true;
+
       for (int row = 0; row < kNumPitchClasses; ++row)
-        matrix.SetCell(column, row, inScale[column] && inScale[row]);
+        matrix.SetCell(column, row, chordTones[row]);
+    }
   }
 
   // §5.1 key/scale quick-fill, "Trigger Note" root mode: instead of one fixed root shared by every
@@ -265,16 +352,34 @@ namespace sparkle_core
   // pattern always includes offset 0, so every column is trivially in its own scale and no
   // column-level gating is needed the way ApplyKeyScale's `inScale[column]` term provides.
   // Same cells-only rationale as ApplyKeyScale above applies here.
-  inline void ApplyKeyScalePerColumn(NoteMatrix& matrix, Scale scale)
+  // `chordMode` -- see ApplyKeyScale's comment. Here every column is trivially its own scale
+  // degree 0 (offset 0 is always a degree), so the chord is just `steps` read straight off the
+  // pattern relative to the column itself, no degree lookup needed.
+  inline void ApplyKeyScalePerColumn(NoteMatrix& matrix, Scale scale, ChordMode chordMode = ChordMode::FullScale)
   {
     const detail::ScalePattern& pattern = detail::kScalePatterns[static_cast<int>(scale)];
 
-    std::array<bool, kNumPitchClasses> offsetInScale{};
-    for (int i = 0; i < pattern.numDegrees; ++i)
-      offsetInScale[pattern.semitones[i]] = true;
+    if (chordMode == ChordMode::FullScale)
+    {
+      std::array<bool, kNumPitchClasses> offsetInScale{};
+      for (int i = 0; i < pattern.numDegrees; ++i)
+        offsetInScale[pattern.semitones[i]] = true;
 
+      for (int column = 0; column < kNumPitchClasses; ++column)
+        for (int row = 0; row < kNumPitchClasses; ++row)
+          matrix.SetCell(column, row, offsetInScale[(row - column + kNumPitchClasses) % kNumPitchClasses]);
+      return;
+    }
+
+    const std::vector<int>& steps = detail::ChordDegreeSteps(chordMode);
     for (int column = 0; column < kNumPitchClasses; ++column)
+    {
+      std::array<bool, kNumPitchClasses> chordTones{};
+      for (int step : steps)
+        chordTones[(column + pattern.semitones[step % pattern.numDegrees]) % kNumPitchClasses] = true;
+
       for (int row = 0; row < kNumPitchClasses; ++row)
-        matrix.SetCell(column, row, offsetInScale[(row - column + kNumPitchClasses) % kNumPitchClasses]);
+        matrix.SetCell(column, row, chordTones[row]);
+    }
   }
 }
