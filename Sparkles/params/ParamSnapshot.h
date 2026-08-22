@@ -67,6 +67,7 @@ namespace sparkle_params
     d.triggerType = static_cast<sparkle_core::TriggerType>(plugin.GetParam(kParamTriggerOn)->Int());
     d.threshold = plugin.GetParam(kParamThreshold)->Value() / 100.;
     d.minVelocity = plugin.GetParam(kParamVelocityDetect)->Int();
+    d.triggerCooloffMs = plugin.GetParam(kParamTriggerCooloff)->Value();
     d.reactiveness = plugin.GetParam(kParamReactiveness)->Value();
     d.confidence = plugin.GetParam(kParamConfidence)->Value();
     d.detectNoteMin = plugin.GetParam(kParamMinNote)->Int();

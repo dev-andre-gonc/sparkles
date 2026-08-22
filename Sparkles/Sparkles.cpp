@@ -64,7 +64,9 @@ namespace
   // ParamGroupDesc at all -- it's a single hand-placed placeholder image control.
   enum class EUITab { QuickGuide, General, Detection, PitchTiming, NoteMatrix, Synth };
 
-  enum class EParamCtrlKind { Knob, Dropdown, TimeKnob };
+  // Toggle is for 2-option enums that should alternate directly on click (IVSwitchControl) rather
+  // than pop up a menu (IVMenuButtonControl) -- currently just the four Beats/ms *Unit params.
+  enum class EParamCtrlKind { Knob, Dropdown, TimeKnob, Toggle };
 
   struct ParamClusterDesc
   {
@@ -101,10 +103,11 @@ namespace
   };
 
   constexpr ParamClusterDesc kTechnicalControls[] = {
-    { kParamReactiveness, "Env Reactiveness", EParamCtrlKind::Knob },
-    { kParamConfidence,   "Note Confidence",  EParamCtrlKind::Knob },
-    { kParamMinNote,      "Min Note",         EParamCtrlKind::Knob },
-    { kParamMaxNote,      "Max Note",         EParamCtrlKind::Knob },
+    { kParamReactiveness,   "Env Reactiveness", EParamCtrlKind::Knob },
+    { kParamConfidence,     "Note Confidence",  EParamCtrlKind::Knob },
+    { kParamMinNote,        "Min Note",         EParamCtrlKind::Knob },
+    { kParamMaxNote,        "Max Note",         EParamCtrlKind::Knob },
+    { kParamTriggerCooloff, "Trigger Cooloff",  EParamCtrlKind::Knob },
   };
 
   // Rays + Sparkles/Ray only -- Range Min/Max + Wrap Mode moved to kRangeControls (Pitch and
@@ -122,21 +125,21 @@ namespace
 
   constexpr ParamClusterDesc kOffsetControls[] = {
     { kParamPreDelay,     "Pre Delay",    EParamCtrlKind::TimeKnob, kParamPreDelayUnit },
-    { kParamPreDelayUnit, "Delay Unit",   EParamCtrlKind::Dropdown },
+    { kParamPreDelayUnit, "Delay Unit",   EParamCtrlKind::Toggle },
     { kParamPreInterval,  "Pre Interval", EParamCtrlKind::Knob },
   };
 
   constexpr ParamClusterDesc kSparklePropertyControls[] = {
     { kParamVelocity,     "Velocity",      EParamCtrlKind::Knob, -1, kParamLoudnessRm, EParamCtrlKind::Knob, kParamLoudnessSm },
     { kParamDuration,     "Duration",      EParamCtrlKind::TimeKnob, kParamDurationUnit, kParamDurationRm, EParamCtrlKind::Knob, kParamDurationSm },
-    { kParamDurationUnit, "Duration Unit", EParamCtrlKind::Dropdown },
+    { kParamDurationUnit, "Duration Unit", EParamCtrlKind::Toggle },
   };
 
   constexpr ParamClusterDesc kTimingControls[] = {
     { kParamRayDelay,     "Ray Delay",      EParamCtrlKind::TimeKnob, kParamRayDelayUnit, kParamRayDelayRm },
-    { kParamRayDelayUnit, "Ray Delay Unit", EParamCtrlKind::Dropdown },
+    { kParamRayDelayUnit, "Ray Delay Unit", EParamCtrlKind::Toggle },
     { kParamDelay,        "Delay",          EParamCtrlKind::TimeKnob, kParamDelayUnit, kParamDelayRm, EParamCtrlKind::Knob, kParamDelaySm },
-    { kParamDelayUnit,    "Delay Unit",     EParamCtrlKind::Dropdown },
+    { kParamDelayUnit,    "Delay Unit",     EParamCtrlKind::Toggle },
   };
 
   constexpr ParamClusterDesc kPitchControls[] = {
@@ -220,7 +223,7 @@ namespace
 
   float ClusterHeight(const ParamClusterDesc& c)
   {
-    return c.kind == EParamCtrlKind::Dropdown ? kDropdownCellH : kKnobCellH;
+    return (c.kind == EParamCtrlKind::Dropdown || c.kind == EParamCtrlKind::Toggle) ? kDropdownCellH : kKnobCellH;
   }
 
   // Fixed factory preset list for the Presets button (docs/SPEC.md §8) -- scoped to exactly the
@@ -728,6 +731,11 @@ Sparkles::Sparkles(const InstanceInfo& info)
         case EParamCtrlKind::TimeKnob:
           pGraphics->AttachControl(new TimeMagnitudeControl(ctrl.rect, ctrl.paramIdx, ctrl.unitParamIdx, ctrl.label), tag);
           break;
+        case EParamCtrlKind::Toggle:
+          // Beats/ms is a plain 2-option enum -- click straight through it (IVSwitchControl) rather
+          // than making the user open and pick from a menu for a binary choice.
+          pGraphics->AttachControl(new IVSwitchControl(ctrl.rect, ctrl.paramIdx, ctrl.label, kCompactStyle), tag);
+          break;
         case EParamCtrlKind::Dropdown:
         default:
           pGraphics->AttachControl(new IVMenuButtonControl(ctrl.rect, ctrl.paramIdx, ctrl.label, kCompactStyle), tag);
@@ -758,8 +766,10 @@ void Sparkles::ApplyPreset(int idx)
   mShutUpRequested.store(true, std::memory_order_release);
 
   const PresetDesc& preset = kPresets[idx];
+  mApplyingPreset = true;
   for (int i = 0; i < kNumScopedParams; i++)
     SetParameterValue(kScopedParamIds[i], GetParam(kScopedParamIds[i])->ToNormalized(preset.values[i]));
+  mApplyingPreset = false;
 
   // SetParameterValue above updates the param and notifies the host, but doesn't resync an
   // already-attached control's own cached display value -- do that explicitly so the knobs jump to
@@ -782,6 +792,7 @@ void Sparkles::OnReset()
   mSynthEngine.Reset();
   ShutUp();
   mBlockStartSample = 0;
+  mLastTriggerSample = kNoLastTrigger; // blockStart resets to 0 too -- see this sentinel's comment
   mEnvelope = 0.0;
   mMidiQueue.Resize(GetBlockSize());
   mMidiQueue.Clear();
@@ -832,14 +843,14 @@ void Sparkles::HandleMidiTrigger(const IMidiMsg& msg, int64_t triggerSample, int
   if (isNoteOn) {
     const bool fireUp = triggerType == sparkle_core::TriggerType::Up || triggerType == sparkle_core::TriggerType::Both;
     if (fireUp && msg.Velocity() >= detection.minVelocity)
-      FireSprinkle(note, triggerSample, timelineSample, sparkleParams, outputMode, bpm, sampleRate);
+      FireSprinkle(note, triggerSample, timelineSample, sparkleParams, outputMode, bpm, sampleRate, detection.triggerCooloffMs);
   }
   else { // isNoteOff -- gate on the velocity the note was struck with, not the note-off's own byte.
     const int heldVelocity = mHeldNoteVelocity[note];
     mHeldNoteVelocity[note] = -1;
     const bool fireDown = triggerType == sparkle_core::TriggerType::Down || triggerType == sparkle_core::TriggerType::Both;
     if (fireDown && heldVelocity >= detection.minVelocity)
-      FireSprinkle(note, triggerSample, timelineSample, sparkleParams, outputMode, bpm, sampleRate);
+      FireSprinkle(note, triggerSample, timelineSample, sparkleParams, outputMode, bpm, sampleRate, detection.triggerCooloffMs);
   }
 }
 
@@ -930,6 +941,13 @@ void Sparkles::ConfigurePitchTracker()
 
 void Sparkles::ConvertTimeMagnitudeUnit(int magnitudeParamIdx, int unitParamIdx)
 {
+  // ApplyPreset sets each magnitude and its *Unit param back-to-back via SetParameterValue, which
+  // always reports kUI -- without bailing out here, the *Unit param's own SetParameterValue call
+  // would rescale the magnitude a second time right after ApplyPreset just set it to the preset's
+  // intended value. See mApplyingPreset's comment.
+  if (mApplyingPreset)
+    return;
+
   // Beats/ms is a straight two-option toggle (see params/ParamList.h), so by the time this fires
   // the unit param already holds the new unit -- rescale the magnitude so it still represents the
   // same real duration under that unit at the current tempo, rather than reinterpreting the same
@@ -942,8 +960,16 @@ void Sparkles::ConvertTimeMagnitudeUnit(int magnitudeParamIdx, int unitParamIdx)
 }
 
 void Sparkles::FireSprinkle(int triggerNote, int64_t triggerSample, int64_t timelineSample, const sparkle_core::SparkleParams& params,
-                            sparkle_core::OutputMode outputMode, double bpm, double sampleRate)
+                            sparkle_core::OutputMode outputMode, double bpm, double sampleRate, double triggerCooloffMs)
 {
+  // §2 trigger cooloff: a trigger landing inside the cooloff window after the last accepted one
+  // is dropped silently, before anything (including the trigger light) reacts to it -- same
+  // "nothing happened" semantics as a confidence/deadline drop elsewhere in this file.
+  const int64_t cooloffSamples = static_cast<int64_t>(std::llround(triggerCooloffMs * 0.001 * sampleRate));
+  if (triggerSample - mLastTriggerSample < cooloffSamples)
+    return;
+  mLastTriggerSample = triggerSample;
+
   mTriggerSender.PushData(ISenderData<1>(kCtrlTagTriggerLight, std::array<float, 1>{ 1.f }));
 
   // Reap sprinkles that have finished sounding by now, so mNumActiveSprinkles reflects only
@@ -1085,7 +1111,7 @@ void Sparkles::ProcessBlock(sample** inputs, sample** outputs, int nFrames)
         if (mPitchTracker.HasConfidentNote() &&
             mPitchTracker.LastConfidentTime() + sparkle_core::PitchTracker::kHopSamples >= mTriggerArmTime) {
           mTriggerPending = false;
-          FireSprinkle(mPitchTracker.LastConfidentNote(), blockStart + s, timelineSample, snapshot.sparkle, snapshot.outputMode, bpm, sampleRate);
+          FireSprinkle(mPitchTracker.LastConfidentNote(), blockStart + s, timelineSample, snapshot.sparkle, snapshot.outputMode, bpm, sampleRate, snapshot.detection.triggerCooloffMs);
         }
         else if (mPitchTracker.Now() >= mTriggerDeadline) {
           mTriggerPending = false; // never got confident about the pitch -- drop the trigger silently
@@ -1110,7 +1136,7 @@ void Sparkles::ProcessBlock(sample** inputs, sample** outputs, int nFrames)
           // confidently playing just before the crossing) rather than analyzing post-crossing
           // audio. Nothing confident within the hold window means we don't know the note: drop.
           if (mPitchTracker.HasConfidentNote())
-            FireSprinkle(mPitchTracker.LastConfidentNote(), blockStart + s, timelineSample, snapshot.sparkle, snapshot.outputMode, bpm, sampleRate);
+            FireSprinkle(mPitchTracker.LastConfidentNote(), blockStart + s, timelineSample, snapshot.sparkle, snapshot.outputMode, bpm, sampleRate, snapshot.detection.triggerCooloffMs);
         }
         else if (fireUp) {
           // The note is just starting -- the analysis buffer is mid-transient, so defer to the

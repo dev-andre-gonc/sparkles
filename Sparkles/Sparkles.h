@@ -158,8 +158,21 @@ private:
   // Called from OnParamChange whenever one of the four Beats/ms *Unit params (Pre Delay/Duration/
   // Ray Delay/Delay, §7.2/§7.4) flips, so the sibling magnitude param keeps representing the same
   // real duration across the switch instead of having its raw number reinterpreted under the new
-  // unit. `unitParamIdx`'s value has already been updated by the time OnParamChange fires.
+  // unit. `unitParamIdx`'s value has already been updated by the time OnParamChange fires. No-ops
+  // while mApplyingPreset is set -- see that flag's comment.
   void ConvertTimeMagnitudeUnit(int magnitudeParamIdx, int unitParamIdx);
+
+  // Set around ApplyPreset's SetParameterValue loop (editor code, single-object build -- see
+  // mShutUpRequested's comment below for why a DSP-declared member can be touched directly from
+  // there). SetParameterValue unconditionally calls OnParamChange(idx, kUI) for every param it
+  // touches, including the four *Unit params ApplyPreset sets alongside their magnitudes -- so
+  // without this guard, ConvertTimeMagnitudeUnit would fire right after each magnitude is set to
+  // its preset value and rescale it again as if it were a genuine Beats/ms toggle, corrupting Pre
+  // Delay/Duration/Ray Delay/Delay on every single preset load. The `source != kUI` check above
+  // doesn't catch this: ApplyPreset drives the exact same SetParameterValue path a real UI control
+  // would, so its calls arrive as kUI too. Plain bool, not atomic -- ApplyPreset runs synchronously
+  // on the UI thread and never yields mid-loop, so there's no concurrent reader to race.
+  bool mApplyingPreset = false;
 
   // Launches one sprinkle for a resolved trigger: blinks the trigger light, enforces
   // kMaxSimultaneousSprinkles, generates the events and schedules them. The light fires here
@@ -174,8 +187,12 @@ private:
   // is a separate concept -- the trigger's absolute position in the DAW's project timeline (from
   // the host's transport, when available) -- fed only to SparkleGenerator::Generate() so
   // PanMode::Random can reproduce the same pan across playthroughs of the same project (§7.6).
+  // `triggerCooloffMs` (sparkle_core::DetectionParams::triggerCooloffMs, §2) is enforced here --
+  // the single funnel both the audio and MIDI trigger paths call through -- rather than at each
+  // arming site, so a trigger arriving inside the cooloff window is dropped the same way
+  // regardless of source. See mLastTriggerSample.
   void FireSprinkle(int triggerNote, int64_t triggerSample, int64_t timelineSample, const sparkle_core::SparkleParams& params,
-                    sparkle_core::OutputMode outputMode, double bpm, double sampleRate);
+                    sparkle_core::OutputMode outputMode, double bpm, double sampleRate, double triggerCooloffMs);
 
   // Set from the UI thread by the "Shut Up" button's action function (see mLayoutFunc), consumed
   // (and cleared) at the top of the next ProcessBlock call on the audio thread. A plain atomic
@@ -217,6 +234,13 @@ private:
   bool mTriggerPending = false;
   int64_t mTriggerArmTime = 0;
   int64_t mTriggerDeadline = 0;
+
+  // triggerSample of the last trigger FireSprinkle actually accepted, on the same free-running
+  // clock as blockStart/triggerSample (see FireSprinkle) -- a new trigger arriving less than
+  // triggerCooloffMs after this is dropped there (§2). Sentinel far below any real triggerSample
+  // so the very first trigger after construction/OnReset is never blocked by cooloff.
+  static constexpr int64_t kNoLastTrigger = -1'000'000'000LL;
+  int64_t mLastTriggerSample = kNoLastTrigger;
 
   // §5 note-eligibility matrix, edited directly by ui/NoteMatrixControl.h and regenerated from
   // kParamKeyRoot/kParamKeyScale/kParamKeyMode in OnParamChange (§5.1). Not persisted yet across plugin

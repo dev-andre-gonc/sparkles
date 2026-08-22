@@ -35,5 +35,11 @@ namespace sparkle_core
     int detectNoteMin = 48;    // MIDI note, inclusive (§2, §3)
     int detectNoteMax = 84;    // MIDI note, inclusive (§2, §3)
     int minVelocity = 1;       // [1, 127]; MIDI note velocity a note-on/off must meet to trigger
+    // Minimum time, in ms, that must elapse after a trigger fires before another one is allowed to
+    // (§2) -- resolved triggers (audio or MIDI) that land inside this window are dropped silently,
+    // same as an unconfident pitch or an over-the-cap sprinkle. Guards against a single physical
+    // event (e.g. a noisy attack transient, a fast repeated MIDI note) firing multiple sprinkles in
+    // quick succession.
+    double triggerCooloffMs = 100.0;
   };
 }

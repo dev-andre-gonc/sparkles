@@ -70,6 +70,10 @@ SPARKLE_PARAM_DOUBLE(kParamThreshold,     "Audio Threshold", 20., 0., 100., 0.01
 // is checked against the velocity the note was originally played at, not the note-off's own data
 // byte -- see Sparkles::ProcessMidiMsg's held-note-velocity tracking.
 SPARKLE_PARAM_INT   (kParamVelocityDetect, "Min Trigger Velocity", 63, 1, 127, "")
+// Minimum time after a trigger fires before another one can (§2) -- see
+// sparkle_core::DetectionParams::triggerCooloffMs. Curved (like the tempo-synced/ADSR ms knobs
+// above) since most useful values sit well below the 2000ms ceiling. Default 100ms.
+SPARKLE_PARAM_DOUBLE_CURVE(kParamTriggerCooloff, "Trigger Cooloff", 100., 0., 2000., 0.1, "ms", 4.)
 // Envelope follower coefficient (§2): env = env*(1-reactiveness) + |in|*reactiveness, applied
 // every sample. Expressed directly in this 0-1 coefficient space (not a %) since that's exactly
 // what DetectionParams::reactiveness and the formula above consume -- no unit conversion needed
