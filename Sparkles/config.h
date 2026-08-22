@@ -24,15 +24,22 @@
 #define PLUG_DOES_MPE 0
 #define PLUG_DOES_STATE_CHUNKS 0
 #define PLUG_HAS_UI 1
-#define PLUG_WIDTH 1100
-#define PLUG_HEIGHT 730
+// Half of resources/img/background.png's own pixel size (1497x828), so the default view matches
+// that artwork's aspect ratio exactly. PLUG_HOST_RESIZE is 0 and MIN/MAX equal PLUG_WIDTH/HEIGHT --
+// together these mean no host ever resizes this logical size directly, so the only way to resize
+// at all is via the in-UI corner handle, which (see EUIResizerMode::Scale in mLayoutFunc) zooms
+// the whole canvas instead of relaying out at a new width/height. That's what keeps the aspect
+// ratio locked and makes every knob/label/font scale with the window for free -- no aspect-lock
+// math of our own needed. See CLAUDE.md's background-artwork section.
+#define PLUG_WIDTH 748
+#define PLUG_HEIGHT 414
 #define PLUG_FPS 60
 #define PLUG_SHARED_RESOURCES 0
-#define PLUG_HOST_RESIZE 1
-#define PLUG_MIN_WIDTH 256
-#define PLUG_MIN_HEIGHT 256
-#define PLUG_MAX_WIDTH 8192
-#define PLUG_MAX_HEIGHT 8192
+#define PLUG_HOST_RESIZE 0
+#define PLUG_MIN_WIDTH PLUG_WIDTH
+#define PLUG_MIN_HEIGHT PLUG_HEIGHT
+#define PLUG_MAX_WIDTH PLUG_WIDTH
+#define PLUG_MAX_HEIGHT PLUG_HEIGHT
 
 #define AUV2_ENTRY Sparkles_Entry
 #define AUV2_ENTRY_STR "Sparkles_Entry"
@@ -61,3 +68,13 @@
 #define APP_SIGNAL_VECTOR_SIZE 64
 
 #define ROBOTO_FN "Roboto-Regular.ttf"
+#define BUNGEE_FN "Bungee-Regular.ttf"
+#define RIGHTEOUS_FN "Righteous-Regular.ttf"
+#define MONOTON_FN "Monoton-Regular.ttf"
+#define FREDOKA_LIGHT_FN "Fredoka-Light.ttf"
+#define FREDOKA_REGULAR_FN "Fredoka-Regular.ttf"
+#define FREDOKA_MEDIUM_FN "Fredoka-Medium.ttf"
+#define FREDOKA_SEMIBOLD_FN "Fredoka-SemiBold.ttf"
+#define FREDOKA_BOLD_FN "Fredoka-Bold.ttf"
+
+#define BACKGROUND_FN "background.png"

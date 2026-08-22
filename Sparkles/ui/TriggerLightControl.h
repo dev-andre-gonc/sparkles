@@ -2,6 +2,7 @@
 
 #include "IControl.h"
 #include "ISender.h"
+#include "Palette.h"
 
 using namespace iplug;
 using namespace igraphics;
@@ -15,7 +16,7 @@ class TriggerLightControl : public IControl
 public:
   static constexpr int kFlashDurationMs = 150;
 
-  TriggerLightControl(const IRECT& bounds, const IColor& onColor = COLOR_RED, const IColor& offColor = COLOR_BLACK)
+  TriggerLightControl(const IRECT& bounds, const IColor& onColor = sparkle_palette::kFuchsiaChrome, const IColor& offColor = sparkle_palette::kLinesInterior.WithOpacity(0.3f))
   : IControl(bounds)
   , mOnColor(onColor)
   , mOffColor(offColor)
@@ -27,7 +28,7 @@ public:
   {
     const IColor color = IColor::LinearInterpolateBetween(mOffColor, mOnColor, mBrightness);
     g.FillEllipse(color, mRECT);
-    g.DrawEllipse(COLOR_WHITE, mRECT);
+    g.DrawEllipse(sparkle_palette::kLinesOuter, mRECT);
   }
 
   void OnMsgFromDelegate(int msgTag, int dataSize, const void* pData) override

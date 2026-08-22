@@ -14,10 +14,12 @@
 #include <vector>
 
 #if IPLUG_EDITOR
+#include "ui/BackgroundImageControl.h"
 #include "ui/EnvelopeMeterControl.h"
 #include "ui/ModifierValueControl.h"
 #include "ui/NoteBarsControl.h"
 #include "ui/NoteMatrixControl.h"
+#include "ui/Palette.h"
 #include "ui/TimeMagnitudeControl.h"
 #include "ui/TriggerLightControl.h"
 #include "ui/ValueDisplayControl.h"
@@ -40,9 +42,7 @@ enum EParams
 
 enum ECtrlTags
 {
-  kCtrlTagVersionNumber = 0,
-  kCtrlTagTitle,
-  kCtrlTagEnvelopeMeter,   // envelope level bar + threshold line, see ui/EnvelopeMeterControl.h
+  kCtrlTagEnvelopeMeter = 0, // envelope level bar + threshold line, see ui/EnvelopeMeterControl.h
   kCtrlTagNoteDisplay,     // last detected note name, see ui/ValueDisplayControl.h
   kCtrlTagTriggerLight,    // blinks on each threshold crossing, see ui/TriggerLightControl.h
   kCtrlTagSprinkleCount,   // number of sprinkles currently sounding, see ui/ValueDisplayControl.h
@@ -55,8 +55,8 @@ enum ECtrlTags
   kCtrlTagQuickGuideImage, // placeholder for the Quick Guide tab's static image, see mLayoutFunc
 
   // One tag per tab-selector button plus the Presets button -- always visible regardless of
-  // mActiveTab, unlike everything below. Currently plain IVButtonControls; see CLAUDE.md/mLayoutFunc
-  // for where to swap these for PNG bitmap-frame controls once art exists.
+  // mActiveTab, unlike everything below. Colored IVButtonControl pills, one per
+  // sparkle_palette::kTabColors entry -- see mLayoutFunc.
   kCtrlTagTabQuickGuide,
   kCtrlTagTabGeneral,
   kCtrlTagTabDetection,
@@ -81,7 +81,10 @@ public:
   Sparkles(const InstanceInfo& info);
 
 #if IPLUG_EDITOR
-  bool OnHostRequestingSupportedViewConfiguration(int width, int height) override { return true; }
+  // PLUG_HOST_RESIZE is 0 (config.h) with MIN/MAX pinned to WIDTH/HEIGHT, so ConstrainEditorResize
+  // (the base Plugin class's default impl -- just clamps to that fixed range) already rejects any
+  // size but the one true one; no override needed. See config.h's comment and CLAUDE.md.
+  bool OnHostRequestingSupportedViewConfiguration(int width, int height) override { return ConstrainEditorResize(width, height); }
 
 private:
   // Which of EUITab (see Sparkles.cpp's anonymous namespace) is currently shown -- plain int here

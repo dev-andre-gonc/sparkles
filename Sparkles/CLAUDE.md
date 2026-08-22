@@ -25,6 +25,45 @@ The early `return` in the resize branch is load-bearing — without it, controls
 
 Because the IRECTs are computed once at the top, the same layout math feeds both branches.
 
+### Background artwork drives the three-column layout
+
+`resources/img/background.png` is not a plain fill -- it bakes in the "SPARKLES" logo/tagline
+(top-left), the outer border + corner-resizer dots, and two vertical divider lines marking where
+the left tab column and right indicator column should sit. `ui/BackgroundImageControl.h` stretches
+it to `bounds` every resize via `DrawFittedBitmap` (plain `IGraphics::AttachBackground()` draws at
+native size instead, which would leave gaps/crop on resize -- see that file's header comment).
+
+`mLayoutFunc`'s three columns (`leftColumnBounds`/`middleColumnBounds`/`rightColumnBounds`) are cut
+at `kLeftColFrac`/`kRightColFrac` -- fractions of `bounds.W()`, not fixed pixel widths -- measured
+directly off that PNG's divider lines. If the background art is ever replaced, re-measure those
+fractions (and `kLogoBottomFrac`, `kBorderPadXFrac`/`kBorderPadYFrac`) against the new image rather
+than eyeballing them. `ui/Palette.h` (`sparkle_palette` namespace) holds the named colors/fonts the
+art was built from -- every control that draws its own colors (`NoteBarsControl`,
+`NoteMatrixControl`, `EnvelopeMeterControl`, etc., plus `kCompactStyle`/`MakeParamStyle`/
+`MakeTabStyle`/`kActionButtonStyle`/`kGroupStyle` in Sparkles.cpp) pulls from there rather than
+hardcoding hex values, so a palette change only has to happen in one place. No separate backdrop
+sits behind the middle/right columns -- the background art itself is pale enough for text to stay
+legible directly on it.
+
+### Aspect ratio is locked, and that's what makes text scale with the window
+
+`config.h`'s `PLUG_WIDTH`/`PLUG_HEIGHT` (748x414) is exactly half of `background.png`'s own pixel
+size (1497x828). `PLUG_HOST_RESIZE` is `0` and `PLUG_MIN/MAX_WIDTH/HEIGHT` are both pinned to
+`PLUG_WIDTH`/`PLUG_HEIGHT` -- between them, no host ever gets to resize this logical size to
+anything else (a host-driven resize path exists per format, e.g. VST3's `checkSizeConstraint`/
+`onSize`, entirely independent of anything IGraphics does; disabling it there is simpler and more
+reliable than trying to aspect-constrain a live host-driven drag after the fact). The *only* way to
+resize at all is the in-UI corner-resizer, attached with `EUIResizerMode::Scale` rather than `Size`
+(see mLayoutFunc). In Scale mode, dragging the handle calls `Resize(Width(), Height(), newScale)` --
+`bounds.W()`/`H()` literally never change after construction, only the draw scale does. That's
+*why* the aspect ratio can never change, and *why* every knob, label, and pill font scales smoothly
+with the window for free: the whole canvas -- vector shapes and text alike -- is rendered at a
+uniform zoom via NanoVG's transform, rather than mLayoutFunc recomputing a new layout at a new
+logical size (which is what `Size` mode does, and what this project used before this aspect-lock
+pass). `mLayoutFunc` still re-runs on every zoom step (`SetLayoutOnResize(true)` + `mLayoutOnResize`),
+but since `bounds` never changes, it always recomputes the exact same rects -- the resize/attach-
+branch split described above still matters, just not for reflow anymore.
+
 ### Tabs reuse the same mechanism
 
 The UI is organized into 6 tabs (`EUITab` in `Sparkles.cpp`'s anonymous namespace) plus a Presets
@@ -60,8 +99,9 @@ This checklist is for hand-placed controls (the note matrix, Key Root/Scale, the
 panel, Shut Up, etc. — each with its own named `ECtrlTag`). A new **param** control usually doesn't
 need any of this: add it to the right group's array in `Sparkles.cpp`'s `kParamGroups` (as a
 `ParamClusterDesc` — set `rmParamIdx`/`smParamIdx` too if it has `_Rm`/`_Sm` multipliers, which
-render as a condensed `ui/ModifierValueControl.h` text chip beside the base control automatically
-when numeric, or a small dropdown when enum-valued — see `rmKind`) and `mLayoutFunc`'s flow-layout
+render as a condensed `ui/ModifierValueControl.h` text chip beside the base control automatically,
+formatted as a decimal multiplier or, for an enum-valued Rm like Ray Rotation's Keep/Invert, as
+`x1`/`x-1`) and `mLayoutFunc`'s flow-layout
 assigns it a tag from `kCtrlTagFirstParamControl` at runtime, in both branches, for free. Every
 `ParamGroupDesc` also declares which `EUITab` it belongs to — a tab-scoped hand-placed control
 instead calls the `setTabbed` helper in the resize branch. A control meant to be visible on every

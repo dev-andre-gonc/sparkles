@@ -3,6 +3,7 @@
 #include "IControl.h"
 #include "ISender.h"
 #include "IPlugStructs.h"
+#include "Palette.h"
 #include "../params/ParamRanges.h"
 #include <array>
 #include <cstdio>
@@ -35,13 +36,14 @@ public:
 
   void Draw(IGraphics& g) override
   {
-    // Light and translucent so the strip reads as ambient feedback behind the real controls,
-    // not as another control. Black-key notes get a darker shade of the same hue -- enough to
-    // read the keyboard layout at a glance, but still faded enough that knobs and text drawn
-    // over them stay clearly legible.
-    const IColor whiteKeyColor(50, 120, 160, 255);
-    const IColor blackKeyColor(70, 45, 75, 140);
-    const IText labelText(10.f, IColor(150, 70, 85, 110), "Roboto-Regular", EAlign::Center, EVAlign::Bottom);
+    // Very low alpha and a neutral hue lifted from the background artwork's own linework, so the
+    // strip reads as an almost-subliminal texture along the bottom edge rather than a distinct
+    // control -- "very discreet" per the redesign brief -- while confident notes still visibly
+    // rise above the resting stub. Black-key notes get a touch more alpha than white-key ones
+    // (rather than a different hue) so the keyboard layout is still faintly legible up close.
+    const IColor whiteKeyColor = sparkle_palette::kLinesInterior.WithOpacity(0.10f);
+    const IColor blackKeyColor = sparkle_palette::kLinesInterior.WithOpacity(0.18f);
+    const IText labelText(9.f, sparkle_palette::kLinesInterior.WithOpacity(0.35f), sparkle_palette::kFontFredokaRegular, EAlign::Center, EVAlign::Bottom);
     const float barWidth = mRECT.W() / static_cast<float>(kNumBars);
 
     for (int i = 0; i < kNumBars; i++)

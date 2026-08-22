@@ -1,7 +1,8 @@
 #pragma once
 
-#include "IControl.h"
+#include "IControls.h"
 #include "IPlugParameter.h"
+#include "Palette.h"
 
 #include <algorithm>
 #include <array>
@@ -24,7 +25,15 @@ using namespace igraphics;
 // milliseconds. Which mode is active is re-read from the sibling unit param on every interaction/
 // draw, rather than cached, so flipping the *Unit dropdown updates this control's feel immediately
 // without needing to be re-attached.
-class TimeMagnitudeControl : public IControl
+//
+// Subclasses IVKnobControl (rather than a plain IControl) purely so its chrome -- handle fill,
+// press/shadow/frame, indicator track, pointer -- comes from the exact same DrawIndicatorTrack/
+// DrawHandle/DrawPointer code every other knob in this project uses (see the Knob-kind branch of
+// the attach loop in Sparkles.cpp), driven by the same IVStyle a plain IVKnobControl gets. Only
+// DrawWidget's *angle* and SetDirty's value text are overridden below -- everything else (sizing,
+// colors, label/value bands) comes straight from IVectorBase, so this knob is visually
+// indistinguishable from a regular one.
+class TimeMagnitudeControl : public IVKnobControl
 {
 public:
   struct NoteValue
@@ -79,45 +88,44 @@ public:
   // Drag distance (px) covering the full 0-1 normalized range in ms mode.
   static constexpr float kMsDragRangePx = 200.f;
 
-  TimeMagnitudeControl(const IRECT& bounds, int magnitudeParamIdx, int unitParamIdx, const char* label)
-  : IControl(bounds, magnitudeParamIdx)
+  TimeMagnitudeControl(const IRECT& bounds, int magnitudeParamIdx, int unitParamIdx, const char* label,
+                        const IVStyle& style)
+  : IVKnobControl(bounds, magnitudeParamIdx, label, style)
   , mUnitParamIdx(unitParamIdx)
-  , mLabel(label)
   {
-    mText = IText(10.f);
   }
 
-  void Draw(IGraphics& g) override
+  // Identical to IVKnobControl::DrawWidget (same DrawIndicatorTrack/DrawHandle/DrawPointer calls,
+  // inherited unchanged) except for `angle`. GetValue() (the param's real normalized value) only
+  // ever covers a tiny sliver of the underlying 0-6000 range in Beats mode, so drawing off it
+  // barely deflects the knob no matter which note value is picked -- draw off position-in-the-
+  // note-list instead so the dial always sweeps its full travel from "None" to "4" (see
+  // kNoteValues). In ms mode `normalized` is just GetValue(), so this is pixel-identical to the
+  // base class there.
+  void DrawWidget(IGraphics& g) override
   {
-    const float cx = mRECT.MW();
-    const float cy = mRECT.T + mRECT.W() * 0.5f;
-    const float r = mRECT.W() * 0.5f - 2.f;
-
-    constexpr float kMinAngle = -135.f, kMaxAngle = 135.f;
-    // GetValue() is normalized against the underlying param's full curved range (0-6000, shared
-    // with ms mode) -- in Beats mode the reachable values only go up to kNoteValues' 4-beat ceiling,
-    // a tiny sliver of that range, so drawing straight off GetValue() barely deflects the knob no
-    // matter the note value picked. Draw off position-in-the-note-list instead so the dial always
-    // sweeps its full travel from "None" to "Whole".
+    const float widgetRadius = GetRadius();
+    const float cx = GetWidgetBounds().MW(), cy = GetWidgetBounds().MH();
     const double normalized = IsBeatsMode()
       ? static_cast<double>(NearestIndex(GetParam()->Value())) / static_cast<double>(kNoteValues.size() - 1)
       : GetValue();
-    const float angle = kMinAngle + static_cast<float>(normalized) * (kMaxAngle - kMinAngle);
+    const float angle = mAngle1 + static_cast<float>(normalized) * (mAngle2 - mAngle1);
 
-    g.DrawArc(COLOR_MID_GRAY, cx, cy, r, kMinAngle, kMaxAngle);
-    g.DrawArc(COLOR_BLACK, cx, cy, r, kMinAngle, angle, nullptr, 2.f);
-    g.DrawCircle(COLOR_BLACK, cx, cy, r);
+    const IRECT knobHandleBounds = GetWidgetBounds().GetCentredInside((widgetRadius - mTrackToHandleDistance) * 2.f);
+    DrawIndicatorTrack(g, angle, cx, cy, widgetRadius);
+    DrawHandle(g, knobHandleBounds);
+    DrawPointer(g, angle, cx, cy, knobHandleBounds.W() / 2.f);
+  }
 
-    const float radians = angle * (3.14159265358979f / 180.f);
-    g.DrawLine(COLOR_BLACK, cx, cy, cx + r * std::sin(radians), cy - r * std::cos(radians), nullptr, 2.f);
-
-    WDL_String valueStr;
-    FormatValue(valueStr);
-
-    const IRECT labelRect = mRECT.GetFromTop(11.f);
-    const IRECT valueRect = mRECT.GetFromBottom(11.f);
-    g.DrawText(mText, mLabel.Get(), labelRect);
-    g.DrawText(mText, valueStr.Get(), valueRect);
+  // IVKnobControl::SetDirty populates mValueStr straight from the bound IParam's own display text
+  // (GetDisplayWithLabel) -- correct in ms mode (plain milliseconds), but in Beats mode the IParam
+  // has no notion of note names, so it would show the raw beats number instead of e.g. "1/8". Calls
+  // IKnobControlBase::SetDirty directly (skipping IVKnobControl::SetDirty) so our own FormatValue
+  // isn't immediately overwritten.
+  void SetDirty(bool push, int valIdx = kNoValIdx) override
+  {
+    IKnobControlBase::SetDirty(push);
+    FormatValue(mValueStr);
   }
 
   void OnMouseDown(float x, float y, const IMouseMod& mod) override
@@ -210,7 +218,6 @@ private:
   }
 
   int mUnitParamIdx;
-  WDL_String mLabel;
   float mMouseDownY = 0.f;
   double mMouseDownNormalized = 0.0;
   int mMouseDownIndex = 0;

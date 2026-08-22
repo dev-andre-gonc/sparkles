@@ -36,6 +36,15 @@ iplug_add_plugin(${PROJECT_NAME}
     ui/ValueDisplayControl.h
   RESOURCES
     resources/fonts/Roboto-Regular.ttf
+    resources/fonts/Bungee-Regular.ttf
+    resources/fonts/Righteous-Regular.ttf
+    resources/fonts/Monoton-Regular.ttf
+    resources/fonts/Fredoka-Light.ttf
+    resources/fonts/Fredoka-Regular.ttf
+    resources/fonts/Fredoka-Medium.ttf
+    resources/fonts/Fredoka-SemiBold.ttf
+    resources/fonts/Fredoka-Bold.ttf
+    resources/img/background.png
   FORMATS
     MINIMAL_PLUGINS APP WASM
 )

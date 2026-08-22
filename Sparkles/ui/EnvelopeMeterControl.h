@@ -3,6 +3,9 @@
 #include "IControl.h"
 #include "ISender.h"
 #include "IPlugStructs.h"
+#include "Palette.h"
+
+#include <algorithm>
 
 using namespace iplug;
 using namespace igraphics;
@@ -24,15 +27,26 @@ public:
 
   void Draw(IGraphics& g) override
   {
-    g.FillRect(COLOR_BLACK, mRECT);
+    using namespace sparkle_palette;
+    const float cr = mRECT.W() * 0.25f;
+    // Square bottom corners (0,0), rounded top (cr,cr) -- matches the envelope fill below, which
+    // is square-bottomed too (it sits flush on this container's bottom edge). Rounding all four
+    // corners here while the fill only rounds its top left a visible mismatch/gap at the bottom
+    // two corners whenever the bar was tall enough to reach them.
+    g.FillRoundRect(kLinesOuter.WithOpacity(0.85f), mRECT, cr, cr, 0.f, 0.f);
 
+    // The fill's bottom edge always sits flush on the meter's own bottom edge, so rounding its
+    // bottom corners too just doubled up the curve and looked like a notch -- only the rising top
+    // edge should be rounded, like a liquid level. The top radius is still capped to the fill's
+    // own (short) height so it can't overshoot a barely-there bar.
     const IRECT envelopeRect = mRECT.FracRect(EDirection::Vertical, mEnvelope);
-    g.FillRect(COLOR_GREEN, envelopeRect);
+    const float topR = std::min(cr, envelopeRect.H() * 0.5f);
+    g.FillRoundRect(kJadeFoil, envelopeRect, topR, topR, 0.f, 0.f);
 
     const float thresholdY = mRECT.B - static_cast<float>(GetValue()) * mRECT.H();
-    g.DrawLine(COLOR_RED, mRECT.L, thresholdY, mRECT.R, thresholdY, nullptr, 2.f);
+    g.DrawLine(kFuchsiaChrome, mRECT.L, thresholdY, mRECT.R, thresholdY, nullptr, 2.f);
 
-    g.DrawRect(COLOR_WHITE, mRECT);
+    g.DrawRoundRect(kPeriwinkleFoil, mRECT, cr, cr, 0.f, 0.f, nullptr, 1.5f);
   }
 
   void OnMsgFromDelegate(int msgTag, int dataSize, const void* pData) override

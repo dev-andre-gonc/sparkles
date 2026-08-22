@@ -2,6 +2,7 @@
 
 #include "IControl.h"
 #include "IPlugParameter.h"
+#include "Palette.h"
 
 #include <algorithm>
 #include <cmath>
@@ -15,10 +16,13 @@ using namespace igraphics;
 // without ever drawing a shell. Lives beside its cluster's base knob (see mLayoutFunc's per-
 // cluster attach loop in Sparkles.cpp) rather than stacked as a small square knob -- the base
 // control already names the property, so this only ever needs to show the multiplier value.
+// Text is left-aligned (EAlign::Near) and the control's own rect starts right beside the base
+// knob -- centering it in the wider chip rect (kChipW) made the text read as if it were floating
+// far from the knob it modifies, even though the box itself was already close.
 //
-// Only for numeric (Knob-kind) Rm/Sm params -- an enum-valued modifier (e.g. Ray Rotation's Rm,
-// "Keep"/"Invert") isn't a multiplier and keeps using the small IVMenuButtonControl dropdown
-// instead; see Sparkles.cpp's ParamClusterDesc::rmKind.
+// Ray Rotation's Rm ("Keep"/"Invert") is the one enum-valued exception -- rather than a
+// continuous multiplier, GetParam()->Value() there is just 0 or 1, so it's shown as "x1"/"x-1"
+// (NDisplayTexts() == 2 is the tell) instead of a misleading "x0.00"/"x1.00".
 class ModifierValueControl : public IControl
 {
 public:
@@ -31,13 +35,16 @@ public:
   : IControl(bounds, paramIdx)
   , mSuffix(suffix)
   {
-    mText = IText(10.f);
+    mText = IText(10.f, sparkle_palette::kLinesInterior, sparkle_palette::kFontFredokaMedium, EAlign::Near);
   }
 
   void Draw(IGraphics& g) override
   {
     WDL_String str;
-    str.SetFormatted(32, "x%.2f %s", GetParam()->Value(), mSuffix.Get());
+    if (GetParam()->NDisplayTexts() == 2)
+      str.SetFormatted(32, "x%d %s", GetParam()->Value() < 0.5 ? 1 : -1, mSuffix.Get());
+    else
+      str.SetFormatted(32, "x%.2f %s", GetParam()->Value(), mSuffix.Get());
     g.DrawText(mText, str.Get(), mRECT);
   }
 

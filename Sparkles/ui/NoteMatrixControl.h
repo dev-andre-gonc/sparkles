@@ -3,6 +3,7 @@
 #include "IControl.h"
 #include "ISender.h"
 #include "IPlugStructs.h"
+#include "Palette.h"
 #include "core/NoteMatrix.h"
 
 #include <algorithm>
@@ -37,7 +38,7 @@ public:
     const IRECT sideHeader = SideHeaderRect();
     const IRECT grid = GridRect();
 
-    g.FillRect(COLOR_BLACK, mRECT);
+    g.FillRoundRect(sparkle_palette::kLinesOuter, mRECT, 10.f);
 
     for (int col = 0; col < sparkle_core::kNumPitchClasses; col++)
       DrawHeaderCell(g, header.GetGridCell(0, col, 1, sparkle_core::kNumPitchClasses), AnyOnInColumn(col), AllOnInColumn(col), kPitchClassNames[col], HeaderFlashBrightness(col));
@@ -51,15 +52,15 @@ public:
       {
         const IRECT cell = grid.GetGridCell(row, col, sparkle_core::kNumPitchClasses, sparkle_core::kNumPitchClasses).GetPadded(-1.f);
         const bool on = mMatrix->GetCell(col, row);
-        const IColor base = on ? COLOR_GREEN : COLOR_DARK_GRAY;
+        const IColor base = on ? sparkle_palette::kJadeFoil : sparkle_palette::kLinesInterior.WithOpacity(0.4f);
         const float flash = FlashBrightness(col, row);
-        g.FillRect(flash > 0.f ? IColor::LinearInterpolateBetween(base, COLOR_WHITE, flash) : base, cell);
+        g.FillRect(flash > 0.f ? IColor::LinearInterpolateBetween(base, sparkle_palette::kPearlFrost, flash) : base, cell);
       }
     }
 
-    g.DrawRect(COLOR_WHITE, header);
-    g.DrawRect(COLOR_WHITE, sideHeader);
-    g.DrawRect(COLOR_WHITE, grid);
+    g.DrawRect(sparkle_palette::kPeriwinkleFoil, header);
+    g.DrawRect(sparkle_palette::kPeriwinkleFoil, sideHeader);
+    g.DrawRect(sparkle_palette::kPeriwinkleFoil, grid);
   }
 
   void OnMouseDown(float x, float y, const IMouseMod& mod) override
@@ -195,11 +196,11 @@ private:
 
   void DrawHeaderCell(IGraphics& g, const IRECT& cell, bool anyOn, bool allOn, const char* label, float flash)
   {
-    const IColor base = allOn ? COLOR_GREEN : anyOn ? COLOR_ORANGE : COLOR_DARK_GRAY;
-    const IColor fill = flash > 0.f ? IColor::LinearInterpolateBetween(base, COLOR_WHITE, flash) : base;
+    const IColor base = allOn ? sparkle_palette::kJadeFoil : anyOn ? sparkle_palette::kChampagne : sparkle_palette::kLinesInterior.WithOpacity(0.55f);
+    const IColor fill = flash > 0.f ? IColor::LinearInterpolateBetween(base, sparkle_palette::kPearlFrost, flash) : base;
     const IRECT padded = cell.GetPadded(-1.f);
     g.FillRect(fill, padded);
-    g.DrawText(IText(11.f, COLOR_WHITE), label, padded);
+    g.DrawText(IText(11.f, sparkle_palette::kPearlFrost, sparkle_palette::kFontFredokaMedium), label, padded);
   }
 
   // Elapsed-since-hit brightness for one cell (0 = not flashing / fully faded), read by Draw() and
