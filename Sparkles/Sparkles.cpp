@@ -378,10 +378,12 @@ namespace
   // A param group's own heading -- just its name, no bordered box around the cluster of knobs
   // beneath it (a plain ITextControl, not IVGroupControl -- see the attach loop below). Larger
   // than kCompactStyle's per-knob caption since a group name is a section heading (read once, from
-  // a distance) rather than a label sized to fit inside a ~72px cell. Inherits kCompactStyle.
-  // labelText's EAlign::Near/EVAlign::Top (from DEFAULT_LABEL_TEXT), which is what puts the name
-  // flush at the group's own top-left corner.
-  const IText kGroupLabelText = kCompactStyle.labelText.WithSize(13.f).WithFGColor(sparkle_palette::kLinesOuter).WithFont(sparkle_palette::kFontFredokaSemiBold);
+  // a distance) rather than a label sized to fit inside a ~72px cell. DEFAULT_LABEL_TEXT only sets
+  // EVAlign::Top, not EAlign -- that defaults to EAlign::Center (see IText's ctor), which centered
+  // the name across the whole 260px-wide groupLabelBounds instead of anchoring it at the group's
+  // own (x, y). Explicit EAlign::Near here is what actually puts the name flush at that corner, so
+  // a group's static x/y in kParamGroups matches where its heading visibly renders.
+  const IText kGroupLabelText = kCompactStyle.labelText.WithSize(13.f).WithFGColor(sparkle_palette::kLinesOuter).WithFont(sparkle_palette::kFontFredokaSemiBold).WithAlign(EAlign::Near);
 
   // Recolors kCompactStyle per-tab so each tab's knobs/switches pick up that tab's own accent
   // color (sparkle_palette::kTabColors), the same way its selector pill is colored -- "colorful
@@ -694,9 +696,13 @@ Sparkles::Sparkles(const InstanceInfo& info)
     const IRECT keyScaleDropdownBounds = keyColumnBounds.GetGridCell(1, 3, 1).GetPadded(-6.f);
     const IRECT keyModeBounds = keyColumnBounds.GetGridCell(2, 3, 1).GetPadded(-6.f);
     // Square (matrix grid + header) plus NoteMatrixControl::kTriggerRowSize of extra height on top
-    // for its trigger row, centred (both axes) in the space right of keyColumnBounds.
+    // for its trigger row, centred (both axes) in the space right of keyColumnBounds. Capped at
+    // kNoteMatrixMaxSquare (rather than always filling noteMatrixArea) so the grid doesn't grow
+    // arbitrarily large on wide/tall layouts; GetCentredInside still keeps it centred in
+    // noteMatrixArea either way.
+    constexpr float kNoteMatrixMaxSquare = 340.f;
     const IRECT noteMatrixArea = tabContentArea.GetReducedFromLeft(kKeyColumnW + kKeyColumnGap);
-    const float noteMatrixSquare = std::min(noteMatrixArea.W(), noteMatrixArea.H() - NoteMatrixControl::kTriggerRowSize);
+    const float noteMatrixSquare = std::min({noteMatrixArea.W(), noteMatrixArea.H() - NoteMatrixControl::kTriggerRowSize, kNoteMatrixMaxSquare});
     const IRECT noteMatrixBounds =
       noteMatrixArea.GetCentredInside(noteMatrixSquare, noteMatrixSquare + NoteMatrixControl::kTriggerRowSize);
 

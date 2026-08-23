@@ -33,7 +33,7 @@ public:
     // is square-bottomed too (it sits flush on this container's bottom edge). Rounding all four
     // corners here while the fill only rounds its top left a visible mismatch/gap at the bottom
     // two corners whenever the bar was tall enough to reach them.
-    g.FillRoundRect(kLinesOuter.WithOpacity(0.85f), mRECT, cr, cr, 0.f, 0.f);
+    g.FillRoundRect(kLinesOuter.WithOpacity(0.15f), mRECT, cr, cr, 0.f, 0.f);
 
     // The fill's bottom edge always sits flush on the meter's own bottom edge, so rounding its
     // bottom corners too just doubled up the curve and looked like a notch -- only the rising top
@@ -41,10 +41,10 @@ public:
     // own (short) height so it can't overshoot a barely-there bar.
     const IRECT envelopeRect = mRECT.FracRect(EDirection::Vertical, mEnvelope);
     const float topR = std::min(cr, envelopeRect.H() * 0.5f);
-    g.FillRoundRect(kJadeFoil, envelopeRect, topR, topR, 0.f, 0.f);
+    g.FillRoundRect(kPearlFrost.WithOpacity(0.85f), envelopeRect, topR, topR, 0.f, 0.f);
 
     const float thresholdY = mRECT.B - static_cast<float>(GetValue()) * mRECT.H();
-    g.DrawLine(kFuchsiaChrome, mRECT.L, thresholdY, mRECT.R, thresholdY, nullptr, 2.f);
+    g.DrawLine(kCustomRed, mRECT.L, thresholdY, mRECT.R, thresholdY, nullptr, 2.f);
 
     g.DrawRoundRect(kLinesOuter, mRECT, cr, cr, 0.f, 0.f, nullptr, kLineThickness);
   }

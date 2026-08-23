@@ -56,7 +56,7 @@ public:
     const IRECT grid = GridRect();
     const IRECT corner = CornerRect();
 
-    g.FillRect(sparkle_palette::kLinesOuter.WithOpacity(0.3f), mRECT);
+    g.FillRect(sparkle_palette::kLinesOuter.WithOpacity(0.15f), mRECT);
 
     // Corner square has no on/off state of its own -- reads as part of the header language, so it
     // takes the same "off" fill DrawHeaderCell uses for a row/column with nothing on.
@@ -285,11 +285,13 @@ private:
     }
   }
 
-  // allOn uses the same accent color (kAmethyst, the Presets button's fill) for both column and
-  // row headers -- "full on" reads as one consistent state regardless of which axis it's on.
+  // anyOn ("some on") matches kAquaChrome, the same color an individual grid cell draws when it's
+  // on (see Draw()'s `on` case) -- so a partially-filled row/column reads as an extension of its own
+  // cells' on-state rather than a distinct third color. allOn ("full on") keeps the previously-used
+  // kMintSheen instead, now reserved for the stronger, fully-on state.
   void DrawHeaderCell(IGraphics& g, const IRECT& cell, bool anyOn, bool allOn, const char* label, float flash)
   {
-    const IColor base = allOn ? sparkle_palette::kCustomGreen : anyOn ? sparkle_palette::kMintSheen : sparkle_palette::kLinesInterior.WithOpacity(0.55f);
+    const IColor base = allOn ? sparkle_palette::kMintSheen : anyOn ? sparkle_palette::kAquaChrome : sparkle_palette::kLinesInterior.WithOpacity(0.55f);
     const IColor fill = flash > 0.f ? IColor::LinearInterpolateBetween(base, sparkle_palette::kPearlFrost, flash) : base;
     g.FillRect(fill, cell);
     g.DrawText(IText(11.f, sparkle_palette::kLinesOuter, sparkle_palette::kFontFredokaMedium), label, cell.GetPadded(-1.f));

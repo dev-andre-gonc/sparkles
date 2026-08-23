@@ -33,6 +33,7 @@ namespace sparkle_palette
   const IColor kCustomRed(255, 204, 64, 36);
   const IColor kAmethystLifted(255, 154, 112, 204);
   const IColor kPeriwinkleWarmed(255, 179, 172, 238);
+  const IColor kSeafoamGreen(255, 66, 170, 122);
 
   // -- Unicorn linework --
   const IColor kLinesOuter(255, 46, 27, 69);
