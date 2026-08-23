@@ -57,9 +57,9 @@ namespace sparkle_core
     Sus4,        // root + 4th + 5th
     Triad,       // root + 3rd + 5th
     Seventh,     // triad + 7th
-    Ninth,       // 7th chord + 9th
-    Eleventh,    // 9th chord + 11th
-    Thirteenth   // 11th chord + 13th
+    Ninth,       // triad + 9th
+    Eleventh,    // triad + 11th
+    Thirteenth   // triad + 13th
   };
 
   // Scale choices for the §5.1 key/scale quick-fill, which regenerates the whole matrix from
@@ -249,10 +249,12 @@ namespace sparkle_core
     };
 
     // Scale-degree-index offsets from a chord's root degree, stepping by 2 ("thirds") per §5.1
-    // Mode. Indexed modulo a scale's own `numDegrees` (see ApplyKeyScale/ApplyKeyScalePerColumn),
-    // so e.g. a 5-note pentatonic's Thirteenth just repeats earlier pitch classes rather than
-    // reading out of bounds -- harmless since a matrix cell is boolean. Not used for FullScale,
-    // which has no root-relative restriction to apply.
+    // Mode. Root/PowerChord/Sus2/Sus4/Triad/Seventh stack every third up to that degree; Ninth/
+    // Eleventh/Thirteenth are the triad plus *only* that single extension (no intervening 7th/9th/
+    // 11th), not a full stack. Indexed modulo a scale's own `numDegrees` (see
+    // ApplyKeyScale/ApplyKeyScalePerColumn), so e.g. a 5-note pentatonic's Thirteenth just repeats
+    // earlier pitch classes rather than reading out of bounds -- harmless since a matrix cell is
+    // boolean. Not used for FullScale, which has no root-relative restriction to apply.
     inline const std::vector<int>& ChordDegreeSteps(ChordMode mode)
     {
       static const std::vector<int> kRoot = { 0 };
@@ -261,9 +263,9 @@ namespace sparkle_core
       static const std::vector<int> kSus4 = { 0, 3, 4 };
       static const std::vector<int> kTriad = { 0, 2, 4 };
       static const std::vector<int> kSeventh = { 0, 2, 4, 6 };
-      static const std::vector<int> kNinth = { 0, 2, 4, 6, 8 };
-      static const std::vector<int> kEleventh = { 0, 2, 4, 6, 8, 10 };
-      static const std::vector<int> kThirteenth = { 0, 2, 4, 6, 8, 10, 12 };
+      static const std::vector<int> kNinth = { 0, 2, 4, 8 };
+      static const std::vector<int> kEleventh = { 0, 2, 4, 10 };
+      static const std::vector<int> kThirteenth = { 0, 2, 4, 12 };
 
       switch (mode)
       {

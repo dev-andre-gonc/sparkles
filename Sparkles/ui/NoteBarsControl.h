@@ -11,16 +11,17 @@
 using namespace iplug;
 using namespace igraphics;
 
-// Display-only strip of per-detection-note confidence bars along the bottom of the UI, fed from
-// the audio thread via ISender<kNumTriggerableNotes> (see mNoteBarsSender in Sparkles.h). One bar
-// per note of the full triggerable span (params/ParamRanges.h), lowest note leftmost, starting
-// flush at the plugin's left edge; notes outside the currently configured detect range simply
-// read zero confidence and sit at the resting height.
+// Display-only strip of per-detection-note confidence bars, fed from the audio thread via
+// ISender<kNumTriggerableNotes> (see mNoteBarsSender in Sparkles.h). One bar per note of the full
+// triggerable span (params/ParamRanges.h), lowest note leftmost; notes outside the currently
+// configured detect range simply read zero confidence and sit at the resting height.
 //
-// This control's bounds are the FULL plugin bounds: bars grow upward from the bottom edge, from
-// kMinBarFrac to kMaxBarFrac of the plugin height as confidence goes 0 -> 1. It's attached first
-// (right after the panel background) so everything else draws over it, and it ignores mouse so
-// it never steals interaction from the controls above it.
+// Detection-tab-scoped (see mLayoutFunc's noteBarsBounds/setTabbed) -- bounds span the full plugin
+// height (bars grow upward from the bottom edge, from kMinBarFrac to kMaxBarFrac of that height as
+// confidence goes 0 -> 1) but are inset a couple pixels inside the left/right divider lines rather
+// than the full plugin width. It's attached early (right after the panel background) so everything
+// else on the Detection tab draws over it, and it ignores mouse so it never steals interaction
+// from the controls above it.
 class NoteBarsControl : public IControl
 {
 public:
@@ -62,13 +63,22 @@ public:
       g.FillRect(isBlackKey ? blackKeyColor : whiteKeyColor, bar.GetPadded(-0.5f));
 
       // Octave anchors: label just the Cs, over the bottom of the bar (the resting stub always
-      // covers this zone, so the label always sits on a bar, never on bare background).
+      // covers this zone, so the label always sits on a bar, never on bare background). "C" and the
+      // octave number are stacked on two lines rather than one "C1"-style string -- a single bar is
+      // narrower than that would need, so one line per glyph is what actually fits kMinBarFrac's
+      // width. Both rows are bottom-anchored to mRECT.B, each just tall enough for the font itself
+      // (kLabelRowHeight), so the two glyphs sit snug together right at the base of the tile.
       if (pitchClass == 0)
       {
-        char label[8];
-        std::snprintf(label, sizeof(label), "C%d", note / 12 - 1);
-        const IRECT labelRect(left, mRECT.B - 16.f, left + barWidth, mRECT.B - 3.f);
-        g.DrawText(labelText, label, labelRect);
+        char octaveLabel[8];
+        std::snprintf(octaveLabel, sizeof(octaveLabel), "%d", note / 12 - 1);
+
+        constexpr float kLabelRowHeight = 7.f;
+        constexpr float kLabelBottomMargin = 2.f;
+        const IRECT octaveRect(left, mRECT.B - kLabelBottomMargin - kLabelRowHeight, left + barWidth, mRECT.B - kLabelBottomMargin);
+        const IRECT letterRect(left, octaveRect.T - kLabelRowHeight, left + barWidth, octaveRect.T);
+        g.DrawText(labelText, "C", letterRect);
+        g.DrawText(labelText, octaveLabel, octaveRect);
       }
     }
   }

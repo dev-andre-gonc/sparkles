@@ -105,7 +105,7 @@ formatted as a decimal multiplier or, for an enum-valued Rm like Ray Rotation's 
 assigns it a tag from `kCtrlTagFirstParamControl` at runtime, in both branches, for free. Every
 `ParamGroupDesc` also declares which `EUITab` it belongs to — a tab-scoped hand-placed control
 instead calls the `setTabbed` helper in the resize branch. A control meant to be visible on every
-tab (Title/Version/NoteBars, the visual-indicator panel, Shut Up, the tab selectors themselves) just
+tab (Title/Version, the visual-indicator panel, Shut Up, the tab selectors themselves) just
 uses a plain `SetTargetAndDrawRECTs` with no `Hide()` call at all, same as before tabs existed —
 `setTabbed` (and Hide in general) is only for controls that belong to exactly one tab. The
 visual-indicator panel and Shut Up used to be tab-scoped to Detection/General respectively; they

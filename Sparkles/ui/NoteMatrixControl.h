@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <functional>
 
 using namespace iplug;
 using namespace igraphics;
@@ -23,25 +24,54 @@ using namespace igraphics;
 // mutating its candidate table from OnParamChange. Acceptable here too since NoteMatrix::Walk()
 // only runs once per trigger (not per sample), so a torn read at worst affects a single in-flight
 // sprinkle, and every field involved is a plain bool.
+//
+// A 13th "trigger row" (TriggerRowRect) sits above the column headers -- 12 piano-key-style
+// buttons, one per pitch class, that let a user fire a sprinkle by hand via the `onTrigger`
+// callback (bound to Sparkles::PushManualTrigger) rather than only ever reading/writing mMatrix.
 class NoteMatrixControl : public IControl
 {
 public:
-  NoteMatrixControl(const IRECT& bounds, sparkle_core::NoteMatrix* matrix)
+  // Height of the "play" row drawn above the column headers (see TriggerRowRect) -- public so
+  // mLayoutFunc can size this control's bounds tall enough to fit it without duplicating the
+  // number. Same height as kHeaderSize below, just a separate named constant since they mean
+  // different things (a note-matrix header vs. a piano-style trigger button).
+  static constexpr float kTriggerRowSize = 22.f;
+
+  // `onTrigger`, if set, is called with a pitch-class index (0=A..11=G#) when the user clicks one
+  // of the 12 trigger-row buttons above the grid -- lets the plugin be played by hand, exactly as
+  // if the trigger arrived via audio or MIDI (see Sparkles::PushManualTrigger, which the caller
+  // typically binds this to).
+  NoteMatrixControl(const IRECT& bounds, sparkle_core::NoteMatrix* matrix, std::function<void(int)> onTrigger = nullptr)
   : IControl(bounds)
   , mMatrix(matrix)
+  , mOnTrigger(std::move(onTrigger))
   {
   }
 
   void Draw(IGraphics& g) override
   {
+    const IRECT triggerRow = TriggerRowRect();
     const IRECT header = HeaderRect();
     const IRECT sideHeader = SideHeaderRect();
     const IRECT grid = GridRect();
+    const IRECT corner = CornerRect();
 
-    g.FillRoundRect(sparkle_palette::kLinesOuter, mRECT, 10.f);
+    g.FillRect(sparkle_palette::kLinesOuter.WithOpacity(0.3f), mRECT);
+
+    // Corner square has no on/off state of its own -- reads as part of the header language, so it
+    // takes the same "off" fill DrawHeaderCell uses for a row/column with nothing on.
+    g.FillRect(sparkle_palette::kLinesInterior.WithOpacity(0.55f), corner);
 
     for (int col = 0; col < sparkle_core::kNumPitchClasses; col++)
-      DrawHeaderCell(g, header.GetGridCell(0, col, 1, sparkle_core::kNumPitchClasses), AnyOnInColumn(col), AllOnInColumn(col), kPitchClassNames[col], HeaderFlashBrightness(col));
+    {
+      // Trigger-row cells share the column header's own flash state (HeaderFlashBrightness) rather
+      // than tracking their own -- a manual click fires a real FireSprinkle, which pushes exactly
+      // the same header-flash message a trigger arriving via audio/MIDI would (see
+      // OnMsgFromDelegate's row < 0 case), so the two light up together for free.
+      const float flash = HeaderFlashBrightness(col);
+      DrawTriggerCell(g, triggerRow.GetGridCell(0, col, 1, sparkle_core::kNumPitchClasses), flash);
+      DrawHeaderCell(g, header.GetGridCell(0, col, 1, sparkle_core::kNumPitchClasses), AnyOnInColumn(col), AllOnInColumn(col), kPitchClassNames[col], flash);
+    }
 
     for (int row = 0; row < sparkle_core::kNumPitchClasses; row++)
       DrawHeaderCell(g, sideHeader.GetGridCell(row, 0, sparkle_core::kNumPitchClasses, 1), AnyOnInRow(row), AllOnInRow(row), kPitchClassNames[row], 0.f);
@@ -50,26 +80,50 @@ public:
     {
       for (int row = 0; row < sparkle_core::kNumPitchClasses; row++)
       {
-        const IRECT cell = grid.GetGridCell(row, col, sparkle_core::kNumPitchClasses, sparkle_core::kNumPitchClasses).GetPadded(-1.f);
+        const IRECT cell = grid.GetGridCell(row, col, sparkle_core::kNumPitchClasses, sparkle_core::kNumPitchClasses);
         const bool on = mMatrix->GetCell(col, row);
-        const IColor base = on ? sparkle_palette::kJadeFoil : sparkle_palette::kLinesInterior.WithOpacity(0.4f);
+        const IColor base = on ? sparkle_palette::kAquaChrome : sparkle_palette::kLinesInterior.WithOpacity(0.0f);
         const float flash = FlashBrightness(col, row);
         g.FillRect(flash > 0.f ? IColor::LinearInterpolateBetween(base, sparkle_palette::kPearlFrost, flash) : base, cell);
       }
     }
 
-    g.DrawRect(sparkle_palette::kPeriwinkleFoil, header);
-    g.DrawRect(sparkle_palette::kPeriwinkleFoil, sideHeader);
-    g.DrawRect(sparkle_palette::kPeriwinkleFoil, grid);
+    // Interior cell-divider lines -- same color as the outer border (kLinesOuter) but at the
+    // unselected tab pills' thickness (kLineThickness), so the grid reads as one consistent
+    // linework style with the rest of the UI rather than relying on gaps revealing whatever's
+    // behind (no longer safe now that this control's own backing fill is translucent, not solid).
+    DrawInteriorGridLines(g, triggerRow, sparkle_core::kNumPitchClasses, 1);
+    DrawInteriorGridLines(g, header, sparkle_core::kNumPitchClasses, 1);
+    DrawInteriorGridLines(g, sideHeader, 1, sparkle_core::kNumPitchClasses);
+    DrawInteriorGridLines(g, grid, sparkle_core::kNumPitchClasses, sparkle_core::kNumPitchClasses);
+
+    // Outer borders draw at kLineThicknessSelected (1.8x kLineThickness) -- same relationship as a
+    // selected tab pill's frame vs. an unselected one -- so the matrix's own outline reads bolder
+    // than its interior gridlines.
+    g.DrawRect(sparkle_palette::kLinesOuter, triggerRow, nullptr, sparkle_palette::kLineThickness * 1.1f);
+    g.DrawRect(sparkle_palette::kLinesOuter, header, nullptr, sparkle_palette::kLineThickness * 1.1f);
+    g.DrawRect(sparkle_palette::kLinesOuter, sideHeader, nullptr, sparkle_palette::kLineThickness * 1.1f);
+    g.DrawRect(sparkle_palette::kLinesOuter, grid, nullptr, sparkle_palette::kLineThickness * 1.1f);
+    g.DrawRect(sparkle_palette::kLinesOuter, corner, nullptr, sparkle_palette::kLineThickness * 1.1f);
   }
 
   void OnMouseDown(float x, float y, const IMouseMod& mod) override
   {
+    const IRECT triggerRow = TriggerRowRect();
     const IRECT header = HeaderRect();
     const IRECT sideHeader = SideHeaderRect();
     const IRECT grid = GridRect();
 
-    if (header.Contains(x, y))
+    if (triggerRow.Contains(x, y))
+    {
+      // No matrix state to mutate and no SetDirty needed -- the real FireSprinkle this triggers
+      // (see Sparkles::PushManualTrigger) round-trips back through mNoteMatrixFlashSender and
+      // starts the header-flash animation itself, same as an audio/MIDI-triggered column.
+      if (mOnTrigger)
+        mOnTrigger(IndexAt(triggerRow, x, true));
+      return;
+    }
+    else if (header.Contains(x, y))
     {
       mMatrix->ToggleColumn(IndexAt(header, x, true));
     }
@@ -154,9 +208,18 @@ private:
     "A", "A#", "B", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#"
   };
 
-  IRECT HeaderRect() const { return mRECT.GetFromTop(kHeaderSize).GetReducedFromLeft(kHeaderSize); }
-  IRECT SideHeaderRect() const { return mRECT.GetFromLeft(kHeaderSize).GetReducedFromTop(kHeaderSize); }
-  IRECT GridRect() const { return mRECT.GetReducedFromTop(kHeaderSize).GetReducedFromLeft(kHeaderSize); }
+  // Trigger row sits above everything else, spanning the same x-range as the column headers/grid
+  // (reduced from left by kHeaderSize so it lines up with them, not the side-header column) --
+  // everything below is then reduced from the top by kTriggerRowSize on top of its previous offset.
+  IRECT TriggerRowRect() const { return mRECT.GetFromTop(kTriggerRowSize).GetReducedFromLeft(kHeaderSize); }
+  IRECT HeaderRect() const { return mRECT.GetReducedFromTop(kTriggerRowSize).GetFromTop(kHeaderSize).GetReducedFromLeft(kHeaderSize); }
+  IRECT SideHeaderRect() const { return mRECT.GetFromLeft(kHeaderSize).GetReducedFromTop(kTriggerRowSize + kHeaderSize); }
+  IRECT GridRect() const { return mRECT.GetReducedFromTop(kTriggerRowSize + kHeaderSize).GetReducedFromLeft(kHeaderSize); }
+
+  // The square above SideHeaderRect and left of TriggerRowRect/HeaderRect -- none of those three
+  // rects reach it (each is reduced away from this corner so it doesn't overlap the others), so
+  // without its own rect this square was never filled or bordered, leaving a gap in the outline.
+  IRECT CornerRect() const { return mRECT.GetFromLeft(kHeaderSize).GetFromTop(kTriggerRowSize + kHeaderSize); }
 
   // `horizontal` picks whether the 12-way split is along x (column headers/grid columns) or y (row
   // headers/grid rows).
@@ -194,13 +257,42 @@ private:
     return true;
   }
 
+  // Piano-key-style "play" button -- unlike DrawHeaderCell's on/off/mixed states (there's no
+  // matrix state to represent here), always the same accent color, just brightened on its shared
+  // header flash like a key lighting up as it's played. Deliberately unlabeled (unlike every other
+  // cell in this control) -- the column header directly below already names the pitch class.
+  void DrawTriggerCell(IGraphics& g, const IRECT& cell, float flash)
+  {
+    const IColor base = sparkle_palette::kPaleOrange;
+    const IColor fill = flash > 0.f ? IColor::LinearInterpolateBetween(base, sparkle_palette::kPearlFrost, flash) : base;
+    g.FillRect(fill, cell);
+  }
+
+  // Draws the lines between adjacent cells of a `cols` x `rows` region -- excludes the region's own
+  // outer edge (i.e. i/j run 1..cols-1 / 1..rows-1) since Draw() already strokes that separately, at
+  // a heavier thickness (kLineThicknessSelected vs. this function's kLineThickness).
+  static void DrawInteriorGridLines(IGraphics& g, const IRECT& r, int cols, int rows)
+  {
+    for (int i = 1; i < cols; i++)
+    {
+      const float x = r.L + r.W() * (static_cast<float>(i) / static_cast<float>(cols));
+      g.DrawLine(sparkle_palette::kLinesOuter, x, r.T, x, r.B, nullptr, sparkle_palette::kLineThickness);
+    }
+    for (int j = 1; j < rows; j++)
+    {
+      const float y = r.T + r.H() * (static_cast<float>(j) / static_cast<float>(rows));
+      g.DrawLine(sparkle_palette::kLinesOuter, r.L, y, r.R, y, nullptr, sparkle_palette::kLineThickness);
+    }
+  }
+
+  // allOn uses the same accent color (kAmethyst, the Presets button's fill) for both column and
+  // row headers -- "full on" reads as one consistent state regardless of which axis it's on.
   void DrawHeaderCell(IGraphics& g, const IRECT& cell, bool anyOn, bool allOn, const char* label, float flash)
   {
-    const IColor base = allOn ? sparkle_palette::kJadeFoil : anyOn ? sparkle_palette::kChampagne : sparkle_palette::kLinesInterior.WithOpacity(0.55f);
+    const IColor base = allOn ? sparkle_palette::kCustomGreen : anyOn ? sparkle_palette::kMintSheen : sparkle_palette::kLinesInterior.WithOpacity(0.55f);
     const IColor fill = flash > 0.f ? IColor::LinearInterpolateBetween(base, sparkle_palette::kPearlFrost, flash) : base;
-    const IRECT padded = cell.GetPadded(-1.f);
-    g.FillRect(fill, padded);
-    g.DrawText(IText(11.f, sparkle_palette::kPearlFrost, sparkle_palette::kFontFredokaMedium), label, padded);
+    g.FillRect(fill, cell);
+    g.DrawText(IText(11.f, sparkle_palette::kLinesOuter, sparkle_palette::kFontFredokaMedium), label, cell.GetPadded(-1.f));
   }
 
   // Elapsed-since-hit brightness for one cell (0 = not flashing / fully faded), read by Draw() and
@@ -224,6 +316,7 @@ private:
   }
 
   sparkle_core::NoteMatrix* mMatrix;
+  std::function<void(int)> mOnTrigger;
   std::array<std::array<Clock::time_point, sparkle_core::kNumPitchClasses>, sparkle_core::kNumPitchClasses> mFlashStart{};
   std::array<Clock::time_point, sparkle_core::kNumPitchClasses> mHeaderFlashStart{};
 };

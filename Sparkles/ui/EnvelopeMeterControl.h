@@ -46,7 +46,7 @@ public:
     const float thresholdY = mRECT.B - static_cast<float>(GetValue()) * mRECT.H();
     g.DrawLine(kFuchsiaChrome, mRECT.L, thresholdY, mRECT.R, thresholdY, nullptr, 2.f);
 
-    g.DrawRoundRect(kPeriwinkleFoil, mRECT, cr, cr, 0.f, 0.f, nullptr, 1.5f);
+    g.DrawRoundRect(kLinesOuter, mRECT, cr, cr, 0.f, 0.f, nullptr, kLineThickness);
   }
 
   void OnMsgFromDelegate(int msgTag, int dataSize, const void* pData) override

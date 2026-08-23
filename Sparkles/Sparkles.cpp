@@ -68,11 +68,18 @@ namespace
   // than pop up a menu (IVMenuButtonControl) -- currently just the four Beats/ms *Unit params.
   enum class EParamCtrlKind { Knob, Dropdown, TimeKnob, Toggle };
 
+  // Every cluster's position is a static (x, y) -- see the big comment above mLayoutFunc's
+  // flatControls loop for why: with bounds locked to a single fixed logical size (see CLAUDE.md's
+  // "Aspect ratio is locked"), there's no variable-width layout problem for a flow/wrap algorithm
+  // to solve, so positions are just hand-placed numbers instead. x/y are relative to the owning
+  // group's own (x, y) -- see ParamGroupDesc below -- so moving a whole group is a one-line edit
+  // and every cluster's number stays a small, local offset instead of an absolute canvas coordinate.
   struct ParamClusterDesc
   {
     int paramIdx;
     const char* label;
     EParamCtrlKind kind;
+    float x, y;                                     // static position, relative to the group's own (x, y)
     int unitParamIdx = -1;                          // TimeKnob only: sibling *Unit enum param
     int rmParamIdx = -1;                             // Rm/Sm are always numeric multipliers, shown
     int smParamIdx = -1;                             // as a ModifierValueControl chip -- see that file's header comment
@@ -84,121 +91,136 @@ namespace
     const ParamClusterDesc* clusters;
     int numClusters;
     EUITab tab;
-    int preferredCols = 0; // 0 = auto (min(numClusters, 3)); set explicitly where pairing matters
+    float x, y; // static origin, relative to paramsArea's own top-left -- see mLayoutFunc
   };
 
   // Output Mode + Passthrough only -- Detect/Trigger On/Threshold/Min Velocity live in
   // kDetectionControls below now (General vs. Detection tabs, see EUITab).
   constexpr ParamClusterDesc kGeneralControls[] = {
-    { kParamOutputMode,     "Output",       EParamCtrlKind::Dropdown },
-    { kParamGain,           "Passthrough",  EParamCtrlKind::Knob },
+    { kParamOutputMode,     "Output",       EParamCtrlKind::Dropdown, 0.f,  18.f },
+    { kParamGain,           "Passthrough",  EParamCtrlKind::Knob,     90.f, 18.f },
   };
 
   constexpr ParamClusterDesc kDetectionControls[] = {
-    { kParamDetectionMode,  "Detect",       EParamCtrlKind::Dropdown },
-    { kParamTriggerOn,      "Trigger On",   EParamCtrlKind::Dropdown },
-    { kParamThreshold,      "Threshold",    EParamCtrlKind::Knob },
-    { kParamVelocityDetect, "Min Velocity", EParamCtrlKind::Knob },
+    { kParamDetectionMode,  "Detect",       EParamCtrlKind::Dropdown, 0.f,   18.f },
+    { kParamTriggerOn,      "Trigger On",   EParamCtrlKind::Dropdown, 90.f,  18.f },
+    { kParamThreshold,      "Threshold",    EParamCtrlKind::Knob,     180.f, 18.f },
+    { kParamVelocityDetect, "Min Velocity", EParamCtrlKind::Knob,     270.f, 18.f },
   };
 
   constexpr ParamClusterDesc kTechnicalControls[] = {
-    { kParamReactiveness,   "Env Reactiveness", EParamCtrlKind::Knob },
-    { kParamConfidence,     "Note Confidence",  EParamCtrlKind::Knob },
-    { kParamMinNote,        "Min Note",         EParamCtrlKind::Knob },
-    { kParamMaxNote,        "Max Note",         EParamCtrlKind::Knob },
-    { kParamTriggerCooloff, "Trigger Cooloff",  EParamCtrlKind::Knob },
+    { kParamReactiveness,   "Env Reactiveness", EParamCtrlKind::Knob, 0.f,   18.f },
+    { kParamConfidence,     "Note Confidence",  EParamCtrlKind::Knob, 90.f,  18.f },
+    { kParamMinNote,        "Min Note",         EParamCtrlKind::Knob, 180.f, 18.f },
+    { kParamMaxNote,        "Max Note",         EParamCtrlKind::Knob, 0.f,   80.f },
+    { kParamTriggerCooloff, "Trigger Cooloff",  EParamCtrlKind::Knob, 90.f,  80.f },
   };
 
   // Rays + Sparkles/Ray only -- Range Min/Max + Wrap Mode moved to kRangeControls (Pitch and
   // Timing tab, per "output note range and wrap mode" belonging there instead of General).
   constexpr ParamClusterDesc kSprinkleStructureControls[] = {
-    { kParamNRays,           "Rays",         EParamCtrlKind::Knob },
-    { kParamNSparklesPerRay, "Sparkles/Ray", EParamCtrlKind::Knob, -1, kParamNSparklesPerRayRm },
+    { kParamNRays,           "Rays",         EParamCtrlKind::Knob, 0.f,  18.f },
+    { kParamNSparklesPerRay, "Sparkles/Ray", EParamCtrlKind::Knob, 90.f, 18.f, -1, kParamNSparklesPerRayRm },
   };
 
   constexpr ParamClusterDesc kRangeControls[] = {
-    { kParamRangeMin, "Range Min", EParamCtrlKind::Knob },
-    { kParamRangeMax, "Range Max", EParamCtrlKind::Knob },
-    { kParamWrapMode, "Wrap",      EParamCtrlKind::Dropdown },
+    { kParamRangeMin, "Range Min", EParamCtrlKind::Knob,     0.f,   18.f },
+    { kParamRangeMax, "Range Max", EParamCtrlKind::Knob,     90.f,  18.f },
+    { kParamWrapMode, "Wrap",      EParamCtrlKind::Dropdown, 180.f, 18.f },
   };
 
   constexpr ParamClusterDesc kOffsetControls[] = {
-    { kParamPreDelayUnit, "Delay Unit",   EParamCtrlKind::Toggle },
-    { kParamPreDelay,     "Pre Delay",    EParamCtrlKind::TimeKnob, kParamPreDelayUnit },
-    { kParamPreInterval,  "Pre Interval", EParamCtrlKind::Knob },
+    { kParamPreDelayUnit, "Delay Unit",   EParamCtrlKind::Toggle,   0.f,   18.f },
+    { kParamPreDelay,     "Pre Delay",    EParamCtrlKind::TimeKnob, 90.f,  18.f, kParamPreDelayUnit },
+    { kParamPreInterval,  "Pre Interval", EParamCtrlKind::Knob,     180.f, 18.f },
   };
 
   constexpr ParamClusterDesc kSparklePropertyControls[] = {
-    { kParamVelocity,     "Velocity",      EParamCtrlKind::Knob, -1, kParamLoudnessRm, kParamLoudnessSm },
-    { kParamDurationUnit, "Duration Unit", EParamCtrlKind::Toggle },
-    { kParamDuration,     "Duration",      EParamCtrlKind::TimeKnob, kParamDurationUnit, kParamDurationRm, kParamDurationSm },
+    { kParamVelocity,     "Velocity",      EParamCtrlKind::Knob,     0.f,  18.f, -1, kParamLoudnessRm, kParamLoudnessSm },
+    { kParamDurationUnit, "Duration Unit", EParamCtrlKind::Toggle,   0.f,  80.f },
+    { kParamDuration,     "Duration",      EParamCtrlKind::TimeKnob, 90.f, 80.f, kParamDurationUnit, kParamDurationRm, kParamDurationSm },
   };
 
   constexpr ParamClusterDesc kTimingControls[] = {
-    { kParamRayDelayUnit, "Ray Delay Unit", EParamCtrlKind::Toggle },
-    { kParamRayDelay,     "Ray Delay",      EParamCtrlKind::TimeKnob, kParamRayDelayUnit, kParamRayDelayRm },
-    { kParamDelayUnit,    "Delay Unit",     EParamCtrlKind::Toggle },
-    { kParamDelay,        "Delay",          EParamCtrlKind::TimeKnob, kParamDelayUnit, kParamDelayRm, kParamDelaySm },
+    { kParamRayDelayUnit, "Ray Delay Unit", EParamCtrlKind::Toggle,   0.f,  18.f },
+    { kParamRayDelay,     "Ray Delay",      EParamCtrlKind::TimeKnob, 90.f, 18.f, kParamRayDelayUnit, kParamRayDelayRm },
+    { kParamDelayUnit,    "Delay Unit",     EParamCtrlKind::Toggle,   0.f,  80.f },
+    { kParamDelay,        "Delay",          EParamCtrlKind::TimeKnob, 90.f, 80.f, kParamDelayUnit, kParamDelayRm, kParamDelaySm },
   };
 
   constexpr ParamClusterDesc kPitchControls[] = {
-    { kParamRayInterval, "Ray Interval", EParamCtrlKind::Knob, -1, kParamRayIntervalRm },
-    { kParamInterval,    "Interval",     EParamCtrlKind::Knob, -1, kParamIntervalRm, kParamIntervalSm },
+    { kParamRayInterval, "Ray Interval", EParamCtrlKind::Knob, 0.f,   18.f, -1, kParamRayIntervalRm },
+    { kParamInterval,    "Interval",     EParamCtrlKind::Knob, 160.f, 18.f, -1, kParamIntervalRm, kParamIntervalSm },
   };
 
   // Ray Rotation's Rm ("Keep"/"Invert") renders through the same numeric ModifierValueControl
   // chip as every other Rm now, formatted as "x1"/"x-1" -- see that file's header comment.
   constexpr ParamClusterDesc kStereoControls[] = {
-    { kParamPanning,     "Panning",      EParamCtrlKind::Dropdown },
-    { kParamWidth,       "Width",        EParamCtrlKind::Knob, -1, kParamWidthRm, kParamWidthSm },
-    { kParamPhase,       "Phase",        EParamCtrlKind::Knob, -1, kParamPhaseRm, kParamPhaseSm },
-    { kParamRayRotation, "Ray Rotation", EParamCtrlKind::Dropdown, -1, kParamRayRotationRm },
-    { kParamSeed,        "Seed",         EParamCtrlKind::Knob },
+    { kParamPanning,     "Panning",      EParamCtrlKind::Dropdown, 0.f,   18.f },
+    { kParamWidth,       "Width",        EParamCtrlKind::Knob,     0.f,   80.f, -1, kParamWidthRm, kParamWidthSm },
+    { kParamPhase,       "Phase",        EParamCtrlKind::Knob,     0.f,   142.f, -1, kParamPhaseRm, kParamPhaseSm },
+    { kParamRayRotation, "Ray Rotation", EParamCtrlKind::Dropdown, 0.f,   204.f, -1, kParamRayRotationRm },
+    { kParamSeed,        "Seed",         EParamCtrlKind::Knob,     175.f, 204.f },
   };
 
   constexpr ParamClusterDesc kSynthControls[] = {
-    { kParamWaveShape, "Wave Shape", EParamCtrlKind::Knob },
-    { kParamAttack,    "Attack",     EParamCtrlKind::Knob, -1, kParamAttackRm,  kParamAttackSm },
-    { kParamDecay,     "Decay",      EParamCtrlKind::Knob, -1, kParamDecayRm,   kParamDecaySm },
-    { kParamSustain,   "Sustain",    EParamCtrlKind::Knob, -1, kParamSustainRm, kParamSustainSm },
-    { kParamRelease,   "Release",    EParamCtrlKind::Knob, -1, kParamReleaseRm, kParamReleaseSm },
+    { kParamWaveShape, "Wave Shape", EParamCtrlKind::Knob, 0.f,  18.f },
+    { kParamAttack,    "Attack",     EParamCtrlKind::Knob, 90.f, 18.f,  -1, kParamAttackRm,  kParamAttackSm },
+    { kParamDecay,     "Decay",      EParamCtrlKind::Knob, 0.f,  80.f,  -1, kParamDecayRm,   kParamDecaySm },
+    { kParamSustain,   "Sustain",    EParamCtrlKind::Knob, 0.f,  142.f, -1, kParamSustainRm, kParamSustainSm },
+    { kParamRelease,   "Release",    EParamCtrlKind::Knob, 0.f,  204.f, -1, kParamReleaseRm, kParamReleaseSm },
   };
 
   constexpr ParamGroupDesc kParamGroups[] = {
-    { "General",              kGeneralControls,           (int) std::size(kGeneralControls),          EUITab::General },
-    { "Sprinkle Structure",   kSprinkleStructureControls,  (int) std::size(kSprinkleStructureControls), EUITab::General },
-    { "Sparkle Properties",   kSparklePropertyControls,    (int) std::size(kSparklePropertyControls),   EUITab::General },
-    { "Detection",            kDetectionControls,          (int) std::size(kDetectionControls),         EUITab::Detection },
-    { "Technical",            kTechnicalControls,          (int) std::size(kTechnicalControls),         EUITab::Detection },
-    { "Trigger Offset",       kOffsetControls,              (int) std::size(kOffsetControls),            EUITab::PitchTiming },
-    { "Timing",               kTimingControls,              (int) std::size(kTimingControls),            EUITab::PitchTiming, 2 },
-    { "Pitch",                kPitchControls,                (int) std::size(kPitchControls),             EUITab::PitchTiming },
-    { "Output Range",         kRangeControls,                (int) std::size(kRangeControls),             EUITab::PitchTiming },
-    // preferredCols=2 on both -- each cluster here is wide (Rm+Sm chips beside the base knob), so
-    // the auto default (min(numClusters, 6) = 5 -> one wide row) badly overflowed the middle
-    // column; 2 columns wraps them into shorter, narrower rows instead.
-    { "Synth",                kSynthControls,                (int) std::size(kSynthControls),             EUITab::Synth, 2 },
-    { "Stereo (Audio Output)", kStereoControls,              (int) std::size(kStereoControls),            EUITab::Synth, 2 },
+    { "General",               kGeneralControls,          (int) std::size(kGeneralControls),          EUITab::General,     0.f,   0.f },
+    { "Sprinkle Structure",    kSprinkleStructureControls, (int) std::size(kSprinkleStructureControls), EUITab::General,    182.f, 0.f },
+    { "Sparkle Properties",    kSparklePropertyControls,   (int) std::size(kSparklePropertyControls),   EUITab::General,    0.f,   82.f },
+    { "Detection",             kDetectionControls,         (int) std::size(kDetectionControls),         EUITab::Detection,  0.f,   0.f },
+    { "Technical",             kTechnicalControls,         (int) std::size(kTechnicalControls),         EUITab::Detection,  0.f,   82.f },
+    { "Trigger Offset",        kOffsetControls,            (int) std::size(kOffsetControls),            EUITab::PitchTiming, 0.f,  0.f },
+    { "Timing",                kTimingControls,            (int) std::size(kTimingControls),            EUITab::PitchTiming, 0.f,  82.f },
+    { "Pitch",                 kPitchControls,             (int) std::size(kPitchControls),             EUITab::PitchTiming, 0.f,  226.f },
+    { "Output Range",          kRangeControls,             (int) std::size(kRangeControls),             EUITab::PitchTiming, 0.f,  308.f },
+    { "Synth",                 kSynthControls,             (int) std::size(kSynthControls),             EUITab::Synth,      0.f,   0.f },
+    // Stereo sits snugly right of Synth -- both have clusters as wide as 246px (a knob + two
+    // modifier chips), and there's only ~492px of paramsArea width to split between two such
+    // columns, so this runs a few px past paramsArea's right edge into the card's own padding. If
+    // that ends up visibly clipping against the right column, either nudge this left a little more
+    // (it'll then overlap Synth's own Wave Shape/Attack row instead) or shrink kChipW/kClusterGap.
+    { "Stereo (Audio Output)", kStereoControls,            (int) std::size(kStereoControls),            EUITab::Synth,      252.f, 0.f },
   };
 
   constexpr int kNumParamGroups = (int) std::size(kParamGroups);
 
-  // Per-control cell size used by mLayoutFunc's group-flow layout below. Knob cells are taller
+  // Per-control cell size used when attaching each FlatCtrl in mLayoutFunc. Knob cells are taller
   // than dropdown cells since a knob needs room for its widget plus label plus value text above
-  // and below it -- cropping those was the whole reason the fixed-outer-grid layout got replaced
-  // with this flow-packed one. Kept small on purpose -- each row is then stretched to fill any
-  // leftover width (see kMaxExtraPerGroupW below), so these are a floor, not the final size.
+  // and below it.
   constexpr float kCellW = 72.f;
   constexpr float kKnobCellH = 54.f;
-  // Switch/dropdown cells now show a caption line plus a value line just like a knob does (see
+  // Switch/dropdown cells show a caption line plus a value line just like a knob does (see
   // EParamCtrlKind::Toggle/Dropdown in the attach loop below, both IVSwitchControl) -- tall enough
   // for both without cropping, though still shorter than a knob cell since there's no circular
   // widget to make room for.
   constexpr float kDropdownCellH = 46.f;
+  // Toggle/Dropdown-kind clusters (the option-cycling pill buttons -- Wrap, Detect, Trigger On,
+  // Output Mode, Panning, Ray Rotation, the Delay/Duration Unit toggles) render smaller than their
+  // full cell -- see the FlatCtrl loop below, which scales clusterRect down to
+  // kOptionButtonWScale/kOptionButtonHScale x its own size, centred in the same static (x, y) slot.
+  // Height gets a separate (taller) scale from width: the value text inside the pill is pinned to
+  // EVAlign::Middle (kActionButtonStyle's valueText, reused for these buttons -- see the
+  // EParamCtrlKind::Toggle/Dropdown case in the attach loop further down) -- with a fully
+  // proportional 80% shrink that centering reads as too cramped/strong, so height gets 10% more
+  // room than width to loosen it back up. If it still looks off, this pair -- not the VAlign::Middle
+  // itself -- is the place to fine-tune.
+  constexpr float kOptionButtonWScale = 0.8f;
+  constexpr float kOptionButtonHScale = kOptionButtonWScale * 1.1f;
   // Every Rm/Sm modifier renders as a condensed text chip ("x1.20 p/ray") beside its base control
   // instead of a small knob -- see ui/ModifierValueControl.h and the attach loop below.
   constexpr float kChipW = 92.f;
   constexpr float kChipH = 16.f;
+  // Gap between a cluster's Rm chip and its Sm chip (see modX below) -- small on purpose, so the
+  // two read as one continuous "x1.20 p/ray x0.90 p/sparkle" sentence rather than two separate
+  // floating labels.
   constexpr float kClusterGap = 3.f;
   // IVKnobControl's actual circular widget ends up much narrower than kCellW once IVectorBase's
   // label/value bands are carved out of the cell (see IVKnobControl::GetRadius, which sizes the
@@ -210,14 +232,11 @@ namespace
   // Measured against kCompactStyle's 10px label/value text at kKnobCellH -- re-measure if either
   // changes (a too-small value re-creates the modifier-chip-on-top-of-the-knob bug this fixed).
   // Padded a few extra px past that measurement on purpose -- err on the side of a hair too far
-  // rather than risk clipping the knob again. A cluster's second modifier (Sm) doesn't get this
-  // same treatment: it's anchored kClusterGap past the first chip (see modX below), tight enough
-  // to read as a continuation of the same "x1.20 p/ray x0.90 p/sparkle" sentence.
+  // rather than risk clipping the knob again.
   constexpr float kModifierOffsetKnobW = 56.f;
-  // Cap on how much extra width a single group can be stretched by when justifying a row to fill
-  // paramsArea -- without this, a row with only one or two small groups would balloon its knobs to
-  // an ungainly size on a wide window.
-  constexpr float kMaxExtraPerGroupW = 50.f;
+  // Height reserved above a group's first row of clusters for its own name heading -- see
+  // kGroupLabelText and the y offsets above (every group's first-row clusters start at y=18).
+  constexpr float kGroupLabelH = 18.f;
 
   // IVStyle's default label/value text (~19px/14px) is sized for the framework's normal control
   // sizes -- at these compact cell sizes it doesn't just look oversized, IVectorBase::MakeRects
@@ -236,7 +255,11 @@ namespace
     .WithColor(kSH, sparkle_palette::kLinesInterior.WithOpacity(0.2f))
     .WithColor(kX1, sparkle_palette::kCobaltSheen)
     .WithRoundness(0.45f)
-    .WithFrameThickness(1.25f);
+    .WithFrameThickness(sparkle_palette::kLineThickness)
+    // Flat, not embossed -- see MakeTabStyle's own WithDrawShadows(false) for the tab pills' matching
+    // reasoning. The tab pills' and Presets button's inset shadow (InsetShadowButtonControl) is a
+    // separate hand-painted effect unaffected by this flag -- see that class's comment.
+    .WithDrawShadows(false);
 
   // One IVStyle per left-column tab pill, built from sparkle_palette::kTabColors -- solid fill
   // (kFG), a darker press-flash of the same hue (kPR), small rounded corners (not a full pill --
@@ -250,15 +273,96 @@ namespace
     const TabColor& tc = kTabColors[tabIndex % kNumTabColors];
     return DEFAULT_STYLE
       .WithShowValue(false)
-      .WithLabelText(DEFAULT_LABEL_TEXT.WithSize(13.f).WithFGColor(tc.text).WithFont(kFontFredokaSemiBold).WithVAlign(EVAlign::Middle))
+      .WithLabelText(DEFAULT_LABEL_TEXT.WithSize(13.f).WithFGColor(tc.text).WithFont(kFontFredokaMedium).WithVAlign(EVAlign::Middle))
       .WithColor(kFG, tc.fill)
       .WithColor(kPR, tc.fill.WithContrast(-0.18f))
       .WithColor(kFR, kLinesOuter.WithOpacity(0.7f))
       .WithColor(kHL, kPearlFrost.WithOpacity(0.35f))
       .WithDrawShadows(false)
-      .WithRoundness(0.3f)
-      .WithFrameThickness(1.5f);
+      .WithRoundness(0.5f)
+      .WithFrameThickness(sparkle_palette::kLineThickness);
   }
+
+  // A tab pill with a small inset shadow hugging all four edges, on top of its normal fill/frame.
+  // IVStyle's own shadow options don't offer this look: WithDrawShadows draws an offset drop
+  // shadow *behind* the shape (outside it, not internal), and WithEmboss draws a two-tone diagonal
+  // bevel (a lighter kPR ring top-left, a darker kSH ring bottom-right) rather than one uniform
+  // tone on every side. IGraphics has a real blurred box-gradient shadow (DrawFastDropShadow, via
+  // NanoVG's nvgBoxGradient), but it's hardcoded to a solid-center/fading-edge shape for casting a
+  // shadow *behind* something -- exactly backwards from an inset shadow (transparent center, dark
+  // edge), and there's no portable way to swap its inner/outer colors without reaching into
+  // backend-specific (NanoVG-only) code. Faked instead with many concentric inset strokes, spaced
+  // closer together than their own thickness so consecutive strokes overlap with no gap between
+  // them -- the first attempt (4 strokes, spacing wider than thickness) left visible bands, which
+  // read as distinct lines instead of a blur; overlap is what actually sells it as soft.
+  //
+  // When pActiveTab/myTabIndex are given, the active tab is marked instead by a flat, subtle white
+  // wash (replacing the inset shadow entirely, rather than layering on top of it) plus an
+  // underline beneath its label. Needs live access to mActiveTab since this control is constructed
+  // once and only repositioned/hidden afterward on a tab switch, never recreated -- "am I
+  // selected" can't be baked in at construction time.
+  class InsetShadowButtonControl : public IVButtonControl
+  {
+  public:
+    InsetShadowButtonControl(const IRECT& bounds, IActionFunction af, const char* label, const IVStyle& style,
+                              const int* pActiveTab = nullptr, int myTabIndex = -1)
+    : IVButtonControl(bounds, af, label, style)
+    , mActiveTabPtr(pActiveTab)
+    , mMyTabIndex(myTabIndex)
+    {
+    }
+
+    bool IsSelected() const { return mActiveTabPtr && *mActiveTabPtr == mMyTabIndex; }
+
+    void DrawWidget(IGraphics& g) override
+    {
+      // Selected tab draws its frame at kLineThicknessSelected (sparkle_palette) -- makes the
+      // active pill read as clearly bolder than its neighbors, on top of the flat wash/underline
+      // below. mStyle is this control's own copy (each MakeTabStyle(...) call makes a fresh IVStyle),
+      // so overwriting it here on every draw can't bleed into any other control.
+      mStyle.frameThickness = IsSelected() ? sparkle_palette::kLineThicknessSelected : sparkle_palette::kLineThickness;
+      IVButtonControl::DrawWidget(g);
+      const IRECT wb = GetWidgetBounds();
+      const float cr = GetRoundedCornerRadius(wb);
+
+      if (IsSelected())
+      {
+        g.FillRoundRect(sparkle_palette::kPearlFrost.WithOpacity(0.1f), wb, cr);
+        return;
+      }
+
+      // Eased (quadratic) falloff -- denser near the edge, tapering off gradually -- reads more
+      // like a real shadow than a linear ramp. kStrokeThickness > the ~1px step between
+      // consecutive insets is what keeps every ring overlapping its neighbors (see class comment).
+      constexpr int kRings = 7;
+      constexpr float kMaxInset = 7.f;
+      constexpr float kStrokeThickness = 1.6f;
+      for (int i = 0; i < kRings; i++) {
+        const float t = (float) i / (float) (kRings - 1);
+        const float inset = 0.8f + t * kMaxInset;
+        const float alpha = 0.2f * (1.f - t) * (1.f - t);
+        g.DrawRoundRect(sparkle_palette::kLinesOuter.WithOpacity(alpha), wb.GetPadded(-inset), std::max(0.f, cr - inset), nullptr, kStrokeThickness);
+      }
+    }
+
+    // Selected tab gets an underline under its (otherwise unchanged) label.
+    void DrawLabel(IGraphics& g) override
+    {
+      IVButtonControl::DrawLabel(g);
+      if (!IsSelected() || !GetLabelBounds().H() || !mStyle.showLabel) return;
+
+      IRECT textRect;
+      g.MeasureText(mStyle.labelText, mLabelStr.Get(), textRect);
+      const IBlend blend = GetBlend();
+      const float cx = GetLabelBounds().MW();
+      const float underlineY = GetLabelBounds().MH() + textRect.H() * 0.42f;
+      g.DrawLine(mStyle.labelText.mFGColor, cx - textRect.W() * 0.5f, underlineY, cx + textRect.W() * 0.5f, underlineY, &blend, 1.5f);
+    }
+
+  private:
+    const int* mActiveTabPtr;
+    int mMyTabIndex;
+  };
 
   // Shared by Shut Up and the Note Matrix tab's Root/Scale/Mode quick-fill buttons (see
   // mLayoutFunc) -- same small-radius/thick-edge/centered-single-line treatment as the tab pills
@@ -269,8 +373,7 @@ namespace
   const IVStyle kActionButtonStyle = kCompactStyle
     .WithLabelText(kCompactStyle.labelText.WithSize(12.f).WithVAlign(EVAlign::Middle))
     .WithValueText(kCompactStyle.labelText.WithSize(12.f).WithVAlign(EVAlign::Middle))
-    .WithRoundness(0.3f)
-    .WithFrameThickness(1.5f);
+    .WithRoundness(0.5f);
 
   // A param group's own heading -- just its name, no bordered box around the cluster of knobs
   // beneath it (a plain ITextControl, not IVGroupControl -- see the attach loop below). Larger
@@ -293,16 +396,6 @@ namespace
       .WithColor(kPR, fill.WithContrast(-0.15f))
       .WithColor(kX1, fill.WithContrast(-0.4f))
       .WithColor(kFR, kLinesOuter.WithOpacity(0.6f));
-  }
-
-  float ClusterWidth(const ParamClusterDesc& c)
-  {
-    const bool hasModifier = c.rmParamIdx >= 0 || c.smParamIdx >= 0;
-    const bool isKnobLike = c.kind == EParamCtrlKind::Knob || c.kind == EParamCtrlKind::TimeKnob;
-    float w = (isKnobLike && hasModifier) ? kModifierOffsetKnobW : kCellW;
-    if (c.rmParamIdx >= 0) w += kClusterGap + kChipW;
-    if (c.smParamIdx >= 0) w += kClusterGap + kChipW;
-    return w;
   }
 
   float ClusterHeight(const ParamClusterDesc& c)
@@ -492,11 +585,11 @@ Sparkles::Sparkles(const InstanceInfo& info)
     // bounds.W()/bounds.H() (not fixed pixel counts) so the three columns below stay flush with the
     // art at every window size -- see ui/BackgroundImageControl.h, which stretches that same image
     // non-uniformly to fill bounds every resize.
-    constexpr float kBorderPadXFrac = 0.008f;
-    constexpr float kBorderPadYFrac = 0.013f;
-    constexpr float kLeftColFrac = 0.216f;   // x-boundary between the left (tabs) and middle column
+    constexpr float kBorderPadXFrac = 0.013f;
+    constexpr float kBorderPadYFrac = 0.024f;
+    constexpr float kLeftColFrac = 0.226f;   // x-boundary between the left (tabs) and middle column
     constexpr float kRightColFrac = 0.908f;  // x-boundary between the middle and right column
-    constexpr float kLogoBottomFrac = 0.545f; // y, below which the left column is free of baked art
+    constexpr float kLogoBottomFrac = 0.525f; // y, below which the left column is free of baked art
     constexpr float kColumnGap = 6.f;
 
     const IRECT innerBounds = bounds.GetPadded(-bounds.W() * kBorderPadXFrac, -bounds.H() * kBorderPadYFrac,
@@ -512,6 +605,17 @@ Sparkles::Sparkles(const InstanceInfo& info)
     const IRECT middleColumnBounds(leftColX + kColumnGap * 0.5f, innerBounds.T, rightColX - kColumnGap * 0.5f, innerBounds.B);
     const IRECT rightColumnBounds(rightColX + kColumnGap * 0.5f, innerBounds.T, innerBounds.R, innerBounds.B);
 
+    // Detection tab: note-detection "piano" confidence strip (see ui/NoteBarsControl.h), inset a
+    // couple pixels inside the two divider lines rather than spanning the full plugin width, since
+    // it now belongs to just this tab instead of sitting behind every tab as a background texture.
+    // Bottom edge sits kNoteBarsBottomPad above bounds.B (a fixed pixel offset, not a fraction --
+    // consistent with kColumnGap/kNoteBarsDividerPad above -- safe since the aspect-locked canvas
+    // means this logical bounds.B never changes, only the draw scale does) so the tiles' base lines
+    // up with the background art's baked-in outer border instead of running under/past it.
+    constexpr float kNoteBarsDividerPad = 7.f;
+    constexpr float kNoteBarsBottomPad = 10.f;
+    const IRECT noteBarsBounds(leftColX + kNoteBarsDividerPad, bounds.T, rightColX - kNoteBarsDividerPad, bounds.B - kNoteBarsBottomPad);
+
     // Always-visible left column: the 6 tab selectors plus the Presets button (not a tab, see
     // ApplyPreset) -- everything in the middle column belongs to exactly one tab and is shown/
     // hidden as a whole by the Hide() calls further down. Colored pills (kTabColors), stacked
@@ -522,7 +626,7 @@ Sparkles::Sparkles(const InstanceInfo& info)
     // regardless of padding, a smaller pad eats less into each pill's own height, both tightening
     // the gap between adjacent pills and (for cell 0) the gap below the logo -- same knob controls
     // both, since tabBarBounds itself starts flush against the logo already (see tabBarTop above).
-    constexpr float kTabCellPad = -1.5f;
+    constexpr float kTabCellPad = -0.5f;
     const IRECT tabQuickGuideBounds  = tabBarBounds.GetGridCell(0, 7, 1).GetPadded(kTabCellPad);
     const IRECT tabGeneralBounds     = tabBarBounds.GetGridCell(1, 7, 1).GetPadded(kTabCellPad);
     const IRECT tabDetectionBounds   = tabBarBounds.GetGridCell(2, 7, 1).GetPadded(kTabCellPad);
@@ -543,15 +647,33 @@ Sparkles::Sparkles(const InstanceInfo& info)
     // note/confidence, then the envelope meter -- the one element that benefits from more room --
     // takes whatever's left above the trigger light, pinned at the very bottom. Fixed-height items
     // are carved off top/bottom in turn.
-    IRECT rightCursor = rightColumnBounds.GetPadded(-9.f);
+    // +1px: this column's fixed -9 padding (below) reads slightly left-of-centre against the
+    // border/divider baked into the background art, which don't fall on exact integer fractions of
+    // it -- shifts every element below without changing rightColumnBounds itself (only referenced
+    // here, so nothing else needs to know).
+    IRECT rightCursor = rightColumnBounds.GetPadded(-9.f).GetTranslated(1.f, 0.f);
     // Widened a bit past rightCursor's own padding (still short of rightColumnBounds' edges) --
     // "Shut Up" was clipping against the button's edges at rightCursor's narrower width. The
     // further +15%-per-side on top of that is expressed as a fraction of its own width (rather
-    // than another fixed pixel add-on) so it stays proportional at any window size.
-    const IRECT shutUpBoundsBase = rightCursor.GetFromTop(40.f).GetHPadded(6.f);
-    const IRECT shutUpBounds = shutUpBoundsBase.GetHPadded(shutUpBoundsBase.W() * 0.15f);
-    rightCursor = rightCursor.GetReducedFromTop(40.f + 6.f);
-    const IRECT sprinkleCountBounds = rightCursor.GetFromTop(24.f);
+    // than another fixed pixel add-on) so it stays proportional at any window size. Height (34,
+    // down from an original 40) is ~15% shorter -- keep the two 34.f's below in sync if this
+    // changes again, since the second one is what advances rightCursor past the button.
+    //
+    // That widen alone now reads oversized now that DrawShadows is off (the shadow used to eat
+    // into the pill's apparent edge, masking how big the fill itself was) -- shrunk back down 15%
+    // in both directions afterward, via padding (not a straight GetHPadded/GetVPadded pair) so the
+    // reduction is proportional to the box's own W/H rather than a fixed px amount, and centred
+    // rather than sliding the button off its slot.
+    const IRECT shutUpBoundsBase = rightCursor.GetFromTop(34.f).GetHPadded(6.f);
+    const IRECT shutUpBoundsWide = shutUpBoundsBase.GetHPadded(shutUpBoundsBase.W() * 0.15f);
+    const IRECT shutUpBounds = shutUpBoundsWide.GetPadded(-shutUpBoundsWide.W() * 0.075f, -shutUpBoundsWide.H() * 0.075f,
+                                                            -shutUpBoundsWide.W() * 0.075f, -shutUpBoundsWide.H() * 0.075f);
+    rightCursor = rightCursor.GetReducedFromTop(34.f + 6.f);
+    // Widened past rightCursor's own width the same way shutUpBounds is above -- there's room for
+    // it inside rightColumnBounds (see the sprinkle-count IText's own comment for the width/font
+    // math this and that were tuned together against).
+    const IRECT sprinkleCountBoundsBase = rightCursor.GetFromTop(24.f);
+    const IRECT sprinkleCountBounds = sprinkleCountBoundsBase.GetHPadded(6.f);
     rightCursor = rightCursor.GetReducedFromTop(24.f + 6.f);
     const IRECT noteBounds = rightCursor.GetFromTop(32.f);
     rightCursor = rightCursor.GetReducedFromTop(32.f + 6.f);
@@ -559,41 +681,47 @@ Sparkles::Sparkles(const InstanceInfo& info)
     rightCursor = rightCursor.GetReducedFromBottom(24.f + 6.f);
     const IRECT meterBounds = rightCursor; // remaining flexible space
 
-    // Note Matrix tab: §5.1 Key/Scale quick-fill pair above the §5 note-eligibility matrix (12x12
-    // grid + column/row toggles, see ui/NoteMatrixControl.h and mNoteMatrix in Sparkles.h) --
-    // hand-placed here (rather than in the flowing param-group grid) since they act on the matrix
-    // directly, not via kParamGroups.
-    const IRECT keyHeaderBounds = tabContentArea.GetFromTop(40.f).GetFromLeft(360.f);
-    const IRECT keyRootBounds = keyHeaderBounds.GetGridCell(0, 1, 3).GetPadded(-2.f);
-    const IRECT keyScaleDropdownBounds = keyHeaderBounds.GetGridCell(1, 1, 3).GetPadded(-2.f);
-    const IRECT keyModeBounds = keyHeaderBounds.GetGridCell(2, 1, 3).GetPadded(-2.f);
-    const IRECT noteMatrixBounds = tabContentArea.GetReducedFromTop(46.f)
-      .GetCentredInside(std::min(tabContentArea.W(), tabContentArea.H() - 46.f));
+    // Note Matrix tab: §5.1 Key/Scale quick-fill trio, stacked vertically down the tab's left edge
+    // (small, out of the way) so the §5 note-eligibility matrix (12x12 grid + column/row toggles,
+    // plus its own 12-button trigger row -- see ui/NoteMatrixControl.h and mNoteMatrix in
+    // Sparkles.h) can sit larger and further right, leaving room to actually play it like a
+    // keyboard. Hand-placed here (rather than in the flowing param-group grid) since Root/Scale/
+    // Mode act on the matrix directly, not via kParamGroups.
+    constexpr float kKeyColumnW = 105.f; // 70 * 1.5
+    constexpr float kKeyColumnGap = 7.f; // half the original 14 -- matrix sits closer to the column
+    const IRECT keyColumnBounds = tabContentArea.GetFromLeft(kKeyColumnW).GetFromTop(42.f * 3.f);
+    const IRECT keyRootBounds = keyColumnBounds.GetGridCell(0, 3, 1).GetPadded(-6.f);
+    const IRECT keyScaleDropdownBounds = keyColumnBounds.GetGridCell(1, 3, 1).GetPadded(-6.f);
+    const IRECT keyModeBounds = keyColumnBounds.GetGridCell(2, 3, 1).GetPadded(-6.f);
+    // Square (matrix grid + header) plus NoteMatrixControl::kTriggerRowSize of extra height on top
+    // for its trigger row, centred (both axes) in the space right of keyColumnBounds.
+    const IRECT noteMatrixArea = tabContentArea.GetReducedFromLeft(kKeyColumnW + kKeyColumnGap);
+    const float noteMatrixSquare = std::min(noteMatrixArea.W(), noteMatrixArea.H() - NoteMatrixControl::kTriggerRowSize);
+    const IRECT noteMatrixBounds =
+      noteMatrixArea.GetCentredInside(noteMatrixSquare, noteMatrixSquare + NoteMatrixControl::kTriggerRowSize);
 
     // Quick Guide tab: a single placeholder image control until the real guide PNG exists.
     const IRECT quickGuideBounds = tabContentArea;
 
-    // One entry per allocated param control (base, then Rm, then Sm -- in kParamGroups' group/
-    // cluster order) and one IRECT per group's labelled frame, computed once here so both the
-    // resize branch and the initial-attach branch below stay fed by the same layout math -- see
-    // CLAUDE.md's "How mLayoutFunc is structured". Groups are shelf-packed left to right, wrapping
-    // to a new row when they'd overflow paramsArea's width, rather than forced into a fixed outer
-    // grid -- a uniform grid either wasted space on small groups or squeezed big ones down to where
-    // their controls' labels got cropped. Within a group, clusters flow the same way (see the
-    // per-group inner loop below), since a cluster's width varies with how many Rm/Sm modifiers it
-    // has (see ClusterWidth).
+    // Every control's position is statically defined -- see ParamClusterDesc::x/y and
+    // ParamGroupDesc::x/y above -- rather than computed by a row-packing/flow algorithm. There's no
+    // variable-width layout problem here for such an algorithm to solve: bounds (and so
+    // paramsArea) is always the exact same fixed 748x414 logical size regardless of window scale
+    // (see CLAUDE.md's "Aspect ratio is locked" -- the corner resizer changes draw scale, never
+    // bounds itself), so a layout that reflows for different available widths was solving a
+    // problem that never actually occurs. To move something, just edit its x/y in the tables above
+    // -- a cluster's (x, y) is relative to its own group's (x, y), which is itself relative to
+    // paramsArea's own top-left.
     //
-    // Only one tab's groups are ever visible at once, so the row-packing below (pass 1: bucket into
-    // rows by nominal width; pass 2: stretch each row to fill paramsArea) only ever considers the
-    // active tab's groups -- there's no reason to share width with groups that are about to be
-    // hidden anyway. Every group still gets a flatControls entry further down (see Step B),
-    // regardless of tab, in the same fixed order on every single call -- control tags
-    // (kCtrlTagFirstParamControl + index) must stay stable across tab switches, which only holds if
-    // that enumeration order never depends on mActiveTab. Only each entry's rect (real if its
-    // group's tab is active, IRECT() otherwise -- harmless, since Hide() below keeps it off-screen
-    // and un-hit-testable regardless) and .tab (used by that same Hide() call) depend on it.
-    constexpr float kGroupGap = 6.f;
-
+    // One entry per allocated param control (base, then Rm, then Sm -- in kParamGroups' group/
+    // cluster order), computed once here so both the resize branch and the initial-attach branch
+    // below stay fed by the same layout math -- see CLAUDE.md's "How mLayoutFunc is structured".
+    // Every group still gets a flatControls entry regardless of tab, in the same fixed order on
+    // every single call -- control tags (kCtrlTagFirstParamControl + index) must stay stable
+    // across tab switches, which only holds if that enumeration order never depends on mActiveTab.
+    // Only each entry's rect (real regardless of whether its group's tab is active -- harmless,
+    // since Hide() below keeps an inactive-tab control off-screen and un-hit-testable) and .tab
+    // (used by that same Hide() call) depend on anything per-call.
     struct FlatCtrl
     {
       IRECT rect;
@@ -605,89 +733,31 @@ Sparkles::Sparkles(const InstanceInfo& info)
       EUITab tab = EUITab::General;
     };
 
-    std::vector<int> activeGroupIndices;
-    for (int g = 0; g < kNumParamGroups; g++)
-      if (kParamGroups[g].tab == activeTab)
-        activeGroupIndices.push_back(g);
+    // One label rect per group, top-left anchored at the group's own static (x, y) -- see the
+    // attach loop further down, which draws each group's name there with no bordered box around it.
+    std::vector<IRECT> groupLabelBounds(kNumParamGroups);
 
-    std::vector<float> nominalW(kNumParamGroups, 0.f), nominalH(kNumParamGroups, 0.f);
-    std::vector<std::vector<int>> rows;
-    rows.reserve(activeGroupIndices.size());
-
-    {
-      std::vector<int> currentRow;
-      float rowW = 0.f;
-      for (int g : activeGroupIndices) {
-        const ParamGroupDesc& group = kParamGroups[g];
-        float maxClusterW = 0.f, maxClusterH = 0.f;
-        for (int c = 0; c < group.numClusters; c++) {
-          maxClusterW = std::max(maxClusterW, ClusterWidth(group.clusters[c]));
-          maxClusterH = std::max(maxClusterH, ClusterHeight(group.clusters[c]));
-        }
-
-        const int cols = group.preferredCols > 0 ? group.preferredCols : std::min(group.numClusters, 6);
-        const int gRows = (group.numClusters + cols - 1) / cols;
-        nominalW[g] = cols * maxClusterW + (cols - 1) * kClusterGap + 12.f;
-        nominalH[g] = gRows * maxClusterH + 18.f + 12.f; // + label offset + top/bottom padding
-
-        if (!currentRow.empty() && rowW + kGroupGap + nominalW[g] > paramsArea.W()) {
-          rows.push_back(currentRow);
-          currentRow.clear();
-          rowW = 0.f;
-        }
-
-        rowW += (currentRow.empty() ? 0.f : kGroupGap) + nominalW[g];
-        currentRow.push_back(g);
-      }
-      if (!currentRow.empty())
-        rows.push_back(currentRow);
-    }
-
-    std::vector<IRECT> groupBounds(kNumParamGroups); // IRECT() (zero rect) for inactive-tab groups
-    float rowY = paramsArea.T;
-    for (const std::vector<int>& rowGroups : rows) {
-      float nominalRowW = 0.f;
-      for (size_t i = 0; i < rowGroups.size(); i++)
-        nominalRowW += (i == 0 ? 0.f : kGroupGap) + nominalW[rowGroups[i]];
-
-      const float extra = std::max(0.f, paramsArea.W() - nominalRowW);
-      const float extraPerGroup = std::min(extra / (float) rowGroups.size(), kMaxExtraPerGroupW);
-
-      float rowH = 0.f;
-      float x = paramsArea.L;
-      for (int g : rowGroups) {
-        const float w = nominalW[g] + extraPerGroup;
-        const float h = nominalH[g];
-        groupBounds[g] = IRECT(x, rowY, x + w, rowY + h);
-        x += w + kGroupGap;
-        rowH = std::max(rowH, h);
-      }
-      rowY += rowH + kGroupGap;
-    }
-
-    // Step B: flow every group's clusters (base control, then a smaller Rm/Sm beside it) using
-    // groupBounds[g] from above -- see the big comment before Step A for why this walks all
-    // kNumParamGroups in fixed order rather than just activeGroupIndices.
     std::vector<FlatCtrl> flatControls;
     flatControls.reserve(96);
     for (int g = 0; g < kNumParamGroups; g++) {
       const ParamGroupDesc& group = kParamGroups[g];
-      const IRECT groupContent = groupBounds[g].GetPadded(-6.f, -18.f, -6.f, -6.f); // room for the group's own label
+      const float groupOriginX = paramsArea.L + group.x, groupOriginY = paramsArea.T + group.y;
+      groupLabelBounds[g] = IRECT(groupOriginX, groupOriginY, groupOriginX + 260.f, groupOriginY + kGroupLabelH);
 
-      float cx = groupContent.L, cy = groupContent.T, clusterRowH = 0.f;
       for (int c = 0; c < group.numClusters; c++) {
         const ParamClusterDesc& cluster = group.clusters[c];
-        const float clusterW = ClusterWidth(cluster);
+        const float cx = groupOriginX + cluster.x, cy = groupOriginY + cluster.y;
         const float clusterH = ClusterHeight(cluster);
 
-        if (cx > groupContent.L && cx + clusterW > groupContent.R) {
-          cy += clusterRowH + kClusterGap;
-          cx = groupContent.L;
-          clusterRowH = 0.f;
-        }
-
-        const IRECT clusterRect(cx, cy, cx + clusterW, cy + clusterH);
-        flatControls.push_back(FlatCtrl{ clusterRect.GetFromLeft(kCellW).GetPadded(-2.f), cluster.paramIdx, cluster.label, cluster.kind, cluster.unitParamIdx, false, group.tab });
+        const IRECT clusterRect(cx, cy, cx + kCellW, cy + clusterH);
+        // See kOptionButtonWScale/kOptionButtonHScale's own comment above for why Toggle/Dropdown
+        // clusters get their own (non-uniform, width < height) shrink here, centred in the same
+        // static (x, y) slot. Knob/TimeKnob-kind clusters are untouched.
+        const bool isOptionButton = cluster.kind == EParamCtrlKind::Dropdown || cluster.kind == EParamCtrlKind::Toggle;
+        const IRECT clusterButtonRect = isOptionButton
+          ? clusterRect.GetCentredInside(clusterRect.W() * kOptionButtonWScale, clusterRect.H() * kOptionButtonHScale)
+          : clusterRect;
+        flatControls.push_back(FlatCtrl{ clusterButtonRect.GetPadded(-2.f), cluster.paramIdx, cluster.label, cluster.kind, cluster.unitParamIdx, false, group.tab });
 
         // Every Rm/Sm gets the condensed "x1.20 p/ray" text chip (see ui/ModifierValueControl.h),
         // including Ray Rotation's enum-valued Rm (shown as "x1"/"x-1" -- see that file). Anchored
@@ -704,15 +774,11 @@ Sparkles::Sparkles(const InstanceInfo& info)
           const IRECT modRect(modX, clusterRect.MH() - kChipH * 0.5f, modX + kChipW, clusterRect.MH() + kChipH * 0.5f);
           flatControls.push_back(FlatCtrl{ modRect.GetPadded(-1.f), cluster.smParamIdx, "p/sparkle", EParamCtrlKind::Knob, -1, true, group.tab });
         }
-
-        cx += clusterW + kClusterGap;
-        clusterRowH = std::max(clusterRowH, clusterH);
       }
     }
 
     if (pGraphics->NControls()) {
       pGraphics->GetBackgroundControl()->SetTargetAndDrawRECTs(bounds);
-      pGraphics->GetControlWithTag(kCtrlTagNoteBars)->SetTargetAndDrawRECTs(bounds);
 
       pGraphics->GetControlWithTag(kCtrlTagTabQuickGuide)->SetTargetAndDrawRECTs(tabQuickGuideBounds);
       pGraphics->GetControlWithTag(kCtrlTagTabGeneral)->SetTargetAndDrawRECTs(tabGeneralBounds);
@@ -743,11 +809,12 @@ Sparkles::Sparkles(const InstanceInfo& info)
       setTabbed(kCtrlTagKeyMode, keyModeBounds, EUITab::NoteMatrix);
       setTabbed(kCtrlTagNoteMatrix, noteMatrixBounds, EUITab::NoteMatrix);
       setTabbed(kCtrlTagQuickGuideImage, quickGuideBounds, EUITab::QuickGuide);
+      setTabbed(kCtrlTagNoteBars, noteBarsBounds, EUITab::Detection);
 
       for (int i = 0; i < (int) flatControls.size(); i++)
         setTabbed(kCtrlTagFirstParamControl + i, flatControls[i].rect, flatControls[i].tab);
       for (int g = 0; g < kNumParamGroups; g++)
-        setTabbed(kCtrlTagFirstParamControl + (int) flatControls.size() + g, groupBounds[g], kParamGroups[g].tab);
+        setTabbed(kCtrlTagFirstParamControl + (int) flatControls.size() + g, groupLabelBounds[g], kParamGroups[g].tab);
       return;
     }
 
@@ -776,8 +843,9 @@ Sparkles::Sparkles(const InstanceInfo& info)
     pGraphics->AttachControl(new BackgroundImageControl(bounds, backgroundBitmap));
 
     // Attached next so the translucent bars render behind every real control -- draw order follows
-    // attach order. Gets the full plugin bounds: the bars anchor to the bottom edge and scale
-    // against the whole plugin height (see NoteBarsControl).
+    // attach order. Detection-tab-scoped (see setTabbed above); bounds passed here are just the
+    // initial attach rect, replaced by noteBarsBounds via setTabbed on the very next mLayoutFunc
+    // call this same attach pass ends with.
     pGraphics->AttachControl(new NoteBarsControl(bounds), kCtrlTagNoteBars);
 
     // No separate title control -- "SPARKLES" and the tagline are baked into the background
@@ -796,30 +864,35 @@ Sparkles::Sparkles(const InstanceInfo& info)
     // every button here needs to, to actually do something) replaces that default and skips it
     // entirely unless called explicitly -- omitting it is what left these buttons stuck looking
     // permanently pressed after the first click.
-    pGraphics->AttachControl(new IVButtonControl(tabQuickGuideBounds, [&](IControl* pCaller) {
+    //
+    // InsetShadowButtonControl (not plain IVButtonControl) for the small inset shadow around each
+    // pill -- see that class's comment. The Presets button below uses it too (it isn't a tab, so
+    // pActiveTab/myTabIndex are left at their defaults -- IsSelected() is always false, which is
+    // exactly what's wanted: the inset shadow always shows, never the selected-tab flat wash).
+    pGraphics->AttachControl(new InsetShadowButtonControl(tabQuickGuideBounds, [&](IControl* pCaller) {
       SplashClickActionFunc(pCaller);
       mActiveTab = (int) EUITab::QuickGuide; mLayoutFunc(pCaller->GetUI());
-    }, "Guide", MakeTabStyle(0)), kCtrlTagTabQuickGuide);
-    pGraphics->AttachControl(new IVButtonControl(tabGeneralBounds, [&](IControl* pCaller) {
+    }, "Guide", MakeTabStyle(0), &mActiveTab, (int) EUITab::QuickGuide), kCtrlTagTabQuickGuide);
+    pGraphics->AttachControl(new InsetShadowButtonControl(tabGeneralBounds, [&](IControl* pCaller) {
       SplashClickActionFunc(pCaller);
       mActiveTab = (int) EUITab::General; mLayoutFunc(pCaller->GetUI());
-    }, "General", MakeTabStyle(1)), kCtrlTagTabGeneral);
-    pGraphics->AttachControl(new IVButtonControl(tabDetectionBounds, [&](IControl* pCaller) {
+    }, "General", MakeTabStyle(1), &mActiveTab, (int) EUITab::General), kCtrlTagTabGeneral);
+    pGraphics->AttachControl(new InsetShadowButtonControl(tabDetectionBounds, [&](IControl* pCaller) {
       SplashClickActionFunc(pCaller);
       mActiveTab = (int) EUITab::Detection; mLayoutFunc(pCaller->GetUI());
-    }, "Detection", MakeTabStyle(2)), kCtrlTagTabDetection);
-    pGraphics->AttachControl(new IVButtonControl(tabPitchTimingBounds, [&](IControl* pCaller) {
+    }, "Detection", MakeTabStyle(2), &mActiveTab, (int) EUITab::Detection), kCtrlTagTabDetection);
+    pGraphics->AttachControl(new InsetShadowButtonControl(tabPitchTimingBounds, [&](IControl* pCaller) {
       SplashClickActionFunc(pCaller);
       mActiveTab = (int) EUITab::PitchTiming; mLayoutFunc(pCaller->GetUI());
-    }, "Pitch/Timing", MakeTabStyle(3)), kCtrlTagTabPitchTiming);
-    pGraphics->AttachControl(new IVButtonControl(tabNoteMatrixBounds, [&](IControl* pCaller) {
+    }, "Pitch/Timing", MakeTabStyle(3), &mActiveTab, (int) EUITab::PitchTiming), kCtrlTagTabPitchTiming);
+    pGraphics->AttachControl(new InsetShadowButtonControl(tabNoteMatrixBounds, [&](IControl* pCaller) {
       SplashClickActionFunc(pCaller);
       mActiveTab = (int) EUITab::NoteMatrix; mLayoutFunc(pCaller->GetUI());
-    }, "Note Matrix", MakeTabStyle(4)), kCtrlTagTabNoteMatrix);
-    pGraphics->AttachControl(new IVButtonControl(tabSynthBounds, [&](IControl* pCaller) {
+    }, "Note Matrix", MakeTabStyle(4), &mActiveTab, (int) EUITab::NoteMatrix), kCtrlTagTabNoteMatrix);
+    pGraphics->AttachControl(new InsetShadowButtonControl(tabSynthBounds, [&](IControl* pCaller) {
       SplashClickActionFunc(pCaller);
       mActiveTab = (int) EUITab::Synth; mLayoutFunc(pCaller->GetUI());
-    }, "Synth", MakeTabStyle(5)), kCtrlTagTabSynth);
+    }, "Synth", MakeTabStyle(5), &mActiveTab, (int) EUITab::Synth), kCtrlTagTabSynth);
     // Click-through, not a dropdown: each click advances to the next factory preset (wrapping) and
     // applies it immediately, updating the button's own label to the newly-active preset's name so
     // there's always visible feedback for which one is loaded. Left-aligned (unlike every other
@@ -831,7 +904,7 @@ Sparkles::Sparkles(const InstanceInfo& info)
       WDL_String presetLabel;
       presetLabel.SetFormatted(64, "   Preset: %s", kPresets[0].name);
       const IVStyle presetStyle = MakeTabStyle(6).WithLabelText(MakeTabStyle(6).labelText.WithAlign(EAlign::Near));
-      pGraphics->AttachControl(new IVButtonControl(presetsBounds, [&](IControl* pCaller) {
+      pGraphics->AttachControl(new InsetShadowButtonControl(presetsBounds, [&](IControl* pCaller) {
         SplashClickActionFunc(pCaller);
         mPresetIndex = (mPresetIndex + 1) % kNumFactoryPresets;
         ApplyPreset(mPresetIndex);
@@ -857,6 +930,13 @@ Sparkles::Sparkles(const InstanceInfo& info)
       str.SetFormatted(16, "%s %d%%", noteName.Get(), static_cast<int>(std::lround(vals[1] * 100.f)));
     }), kCtrlTagNoteDisplay);
     pGraphics->AttachControl(new ValueDisplayControl<1>(sprinkleCountBounds, "0 sprinkles",
+      // At the column's real width, "N sprinkles" overflows the control's own rect and gets
+      // clipped by IGraphics::DrawControl's per-control scissor (bounds.Intersect(controlBounds),
+      // padded only 0.75px) -- cropped instead of just overlapping neighbors like text usually can,
+      // because that scissor is set from the control's own mRECT. sprinkleCountBounds' own +6px
+      // widen (above) buys back some of that room -- 11px is the largest size that still keeps the
+      // worst case ("999 sprinkles") inside the widened rect uncropped, verified by temporarily
+      // hardcoding that string and a screenshot, not just estimated.
       IText(11.f, sparkle_palette::kLinesInterior, sparkle_palette::kFontFredokaRegular), [](const std::array<float, 1>& vals, WDL_String& str) {
       str.SetFormatted(32, "%d sprinkles", static_cast<int>(std::lround(vals[0])));
     }), kCtrlTagSprinkleCount);
@@ -865,10 +945,12 @@ Sparkles::Sparkles(const InstanceInfo& info)
       SplashClickActionFunc(pCaller);
       mShutUpRequested.store(true, std::memory_order_release);
     }, "Shut Up", kActionButtonStyle
-      .WithColor(kFG, sparkle_palette::kFuchsiaChrome)
-      .WithColor(kPR, sparkle_palette::kFuchsiaChrome.WithContrast(-0.18f))
+      .WithColor(kFG, sparkle_palette::kCustomRed)
+      .WithColor(kPR, sparkle_palette::kCustomRed.WithContrast(-0.18f))
       .WithShowValue(false)
-      .WithLabelText(kActionButtonStyle.labelText.WithFGColor(sparkle_palette::kPearlFrost))), kCtrlTagShutUp);
+      // A little bolder than kActionButtonStyle's own Medium (shared with Root/Scale/Mode, which
+      // stay as-is) -- overridden here rather than on kActionButtonStyle itself.
+      .WithLabelText(kActionButtonStyle.labelText.WithFGColor(sparkle_palette::kPearlFrost).WithFont(sparkle_palette::kFontFredokaSemiBold))), kCtrlTagShutUp);
     // Root/Scale/Mode: same small-radius/thick-edge/single-centered-line look as Shut Up (see
     // kActionButtonStyle), tinted with the Note Matrix tab's own accent color instead of Shut Up's
     // fuchsia. Caption ("Root"/"Scale"/"Mode") is hidden -- only the selected option (the value)
@@ -879,7 +961,8 @@ Sparkles::Sparkles(const InstanceInfo& info)
       pGraphics->AttachControl(new IVMenuButtonControl(keyScaleDropdownBounds, kParamKeyScale, "Scale", keyStyle), kCtrlTagKeyScale);
       pGraphics->AttachControl(new IVMenuButtonControl(keyModeBounds, kParamKeyMode, "Mode", keyStyle), kCtrlTagKeyMode);
     }
-    pGraphics->AttachControl(new NoteMatrixControl(noteMatrixBounds, &mNoteMatrix), kCtrlTagNoteMatrix);
+    pGraphics->AttachControl(new NoteMatrixControl(noteMatrixBounds, &mNoteMatrix,
+      [this](int pitchClass) { PushManualTrigger(pitchClass); }), kCtrlTagNoteMatrix);
 
     for (int i = 0; i < (int) flatControls.size(); i++) {
       const FlatCtrl& ctrl = flatControls[i];
@@ -904,13 +987,26 @@ Sparkles::Sparkles(const InstanceInfo& info)
           // their states (IVSwitchControl) rather than popping up a menu -- see CLAUDE.md. Key
           // Root/Scale/Mode above are the one deliberate exception, kept as real dropdowns since
           // their option lists are long enough that cycling through every one would be tedious.
-          pGraphics->AttachControl(new IVSwitchControl(ctrl.rect, ctrl.paramIdx, ctrl.label, style), tag);
+          //
+          // Value text (the selected option, drawn inside the button pill -- valueInButton
+          // defaults true) borrows kActionButtonStyle's valueText's font/color/alignment --
+          // Fredoka-Medium in kLinesOuter, vertically centered -- rather than
+          // style.valueText's own Fredoka-Regular in kLinesInterior (still fine for a knob's
+          // value caption sitting in its own thin band below the widget, just too quiet in a
+          // pill where the value is the primary text), same as the Root/Scale/Mode quick-fill
+          // buttons. Sized back down to 10px here rather than kActionButtonStyle's 12px, to
+          // match these pills' own smaller (20%-shrunk, see the FlatCtrl loop above) size --
+          // kActionButtonStyle itself stays untouched so Root/Scale/Mode/Shut Up don't shrink.
+          // The caption line above the pill (ctrl.label, e.g. "Wrap") is untouched -- still
+          // style's own labelText -- only the value inside the pill changes.
+          pGraphics->AttachControl(new IVSwitchControl(ctrl.rect, ctrl.paramIdx, ctrl.label,
+            style.WithValueText(kActionButtonStyle.valueText.WithSize(10.f))), tag);
           break;
       }
     }
     // Just the group's name, no bordered box around its knobs -- see kGroupLabelText's comment.
     for (int g = 0; g < kNumParamGroups; g++)
-      pGraphics->AttachControl(new ITextControl(groupBounds[g], kParamGroups[g].name, kGroupLabelText), kCtrlTagFirstParamControl + (int) flatControls.size() + g);
+      pGraphics->AttachControl(new ITextControl(groupLabelBounds[g], kParamGroups[g].name, kGroupLabelText), kCtrlTagFirstParamControl + (int) flatControls.size() + g);
 
     // Everything above attaches with whichever tab happened to be active at construction time as
     // its rect/Hide() truth -- re-enter through the resize branch once now (NControls() is nonzero
@@ -1059,6 +1155,34 @@ void Sparkles::ShutUp()
   mFlashScheduler.Reset();
 
   mNumActiveSprinkles = 0;
+}
+
+void Sparkles::PushManualTrigger(int pitchClass)
+{
+  if (pitchClass < 0 || pitchClass >= sparkle_core::kNumPitchClasses)
+    return;
+
+  // Fixed octave around middle C (MIDI 60 = C4, matrix column kC == 3) -- inverts
+  // sparkle_core::PitchClassOf's (semitone + 3) % 12 mapping so e.g. pitchClass kA (0) lands on A4
+  // (69), matching standard MIDI/concert-pitch numbering rather than an arbitrary octave.
+  const int note = 60 + (pitchClass + 9) % sparkle_core::kNumPitchClasses;
+
+  const int tail = mManualTriggerTail.load(std::memory_order_relaxed);
+  const int nextTail = (tail + 1) % kManualTriggerQueueSize;
+  if (nextTail == mManualTriggerHead.load(std::memory_order_acquire))
+    return; // queue full -- drop rather than block the UI thread
+  mManualTriggerQueue[tail].store(note, std::memory_order_relaxed);
+  mManualTriggerTail.store(nextTail, std::memory_order_release);
+}
+
+int Sparkles::PopManualTrigger()
+{
+  const int head = mManualTriggerHead.load(std::memory_order_relaxed);
+  if (head == mManualTriggerTail.load(std::memory_order_acquire))
+    return -1;
+  const int note = mManualTriggerQueue[head].load(std::memory_order_relaxed);
+  mManualTriggerHead.store((head + 1) % kManualTriggerQueueSize, std::memory_order_release);
+  return note;
 }
 
 void Sparkles::OnParamChange(int paramIdx)
@@ -1221,6 +1345,19 @@ void Sparkles::ProcessBlock(sample** inputs, sample** outputs, int nFrames)
   // Whether the audio envelope path below is allowed to arm/fire triggers this block -- Detection
   // Mode gates it the same way it gates HandleMidiTrigger's MIDI path (see that function).
   const bool audioTriggerEnabled = snapshot.detection.detectionMode != sparkle_core::DetectionMode::Midi;
+
+  // Drain any note-matrix "play" buttons clicked since the last block (see PushManualTrigger and
+  // ui/NoteMatrixControl.h's trigger row) -- each fires straight through FireSprinkle, the same
+  // shared endpoint the audio and MIDI paths below funnel through, but deliberately skipping both
+  // of their Detection Mode/velocity/trigger-type gating: a manual click is a deliberate
+  // performance gesture, not a detected crossing, so it always sounds regardless of Input Type.
+  // Fired at this block's very first sample -- a mouse click has no sub-block timing worth
+  // preserving the way real MIDI does.
+  const int64_t timelineSampleAtBlockStart = hostSamplePos >= 0.0
+    ? static_cast<int64_t>(std::llround(hostSamplePos)) : blockStart;
+  for (int note = PopManualTrigger(); note >= 0; note = PopManualTrigger())
+    FireSprinkle(note, blockStart, timelineSampleAtBlockStart, snapshot.sparkle, snapshot.outputMode,
+                 bpm, sampleRate, snapshot.detection.triggerCooloffMs);
 
   for (int s = 0; s < nFrames; s++) {
     // This sample's absolute project-timeline position, for PanMode::Random's seed (§7.6) --

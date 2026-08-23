@@ -16,7 +16,7 @@ class TriggerLightControl : public IControl
 public:
   static constexpr int kFlashDurationMs = 150;
 
-  TriggerLightControl(const IRECT& bounds, const IColor& onColor = sparkle_palette::kFuchsiaChrome, const IColor& offColor = sparkle_palette::kLinesInterior.WithOpacity(0.3f))
+  TriggerLightControl(const IRECT& bounds, const IColor& onColor = sparkle_palette::kCustomRed, const IColor& offColor = sparkle_palette::kLinesInterior.WithOpacity(0.3f))
   : IControl(bounds)
   , mOnColor(onColor)
   , mOffColor(offColor)

@@ -47,7 +47,7 @@ enum ECtrlTags
   kCtrlTagTriggerLight,    // blinks on each threshold crossing, see ui/TriggerLightControl.h
   kCtrlTagSprinkleCount,   // number of sprinkles currently sounding, see ui/ValueDisplayControl.h
   kCtrlTagNoteMatrix,      // §5 note-eligibility grid + column/row toggles, see ui/NoteMatrixControl.h
-  kCtrlTagNoteBars,        // per-note confidence bars along the bottom edge, see ui/NoteBarsControl.h
+  kCtrlTagNoteBars,        // per-note confidence bars, Detection-tab-only, see ui/NoteBarsControl.h
   kCtrlTagShutUp,          // kills all in-flight sprinkles/rays/sparkles, see mShutUpRequested
   kCtrlTagKeyRoot,         // §5.1 key/scale quick-fill, hand-placed beside kCtrlTagNoteMatrix
   kCtrlTagKeyScale,
@@ -204,6 +204,32 @@ private:
   // (see mNoteMatrix's cross-thread sharing below), and landing within the next block is plenty
   // fast for a manual "stop the sound" button.
   std::atomic<bool> mShutUpRequested{ false };
+
+  // Fed from the UI thread by the Note Matrix tab's 12 "play" buttons -- the trigger row
+  // ui/NoteMatrixControl.h draws above its grid (see mLayoutFunc) -- so a user can trigger a
+  // sprinkle by hand, letting the plugin be played like a piano regardless of Input/Detection Mode.
+  // A fixed-size SPSC ring buffer rather than a single atomic<int> like mShutUpRequested above,
+  // since a quick flurry of clicks can queue more than one manual trigger within a single block.
+  // Drained at the top of ProcessBlock straight into FireSprinkle -- the same funnel the audio and
+  // MIDI trigger paths use -- but deliberately bypassing both of those paths' Detection Mode/
+  // velocity/trigger-type gating, since a manual click is a deliberate performance gesture, not a
+  // detected crossing, and should always sound. mManualTriggerHead is only ever touched from
+  // ProcessBlock (the consumer); mManualTriggerTail only from the UI thread (the producer, via
+  // PushManualTrigger) -- classic single-producer/single-consumer indices, so no lock is needed.
+  static constexpr int kManualTriggerQueueSize = 16;
+  std::array<std::atomic<int>, kManualTriggerQueueSize> mManualTriggerQueue{};
+  std::atomic<int> mManualTriggerHead{ 0 };
+  std::atomic<int> mManualTriggerTail{ 0 };
+
+  // Queues a manual trigger for the given note-matrix pitch class (0=A..11=G#, see
+  // sparkle_core::PitchClassOf) at a fixed MIDI octave around middle C -- called directly from the
+  // UI thread by NoteMatrixControl's trigger-row click handler. Drops the click silently if the
+  // queue is already full rather than blocking the UI thread.
+  void PushManualTrigger(int pitchClass);
+
+  // Pops the next queued manual trigger (a MIDI note number, or -1 if none pending). Only ever
+  // called from ProcessBlock.
+  int PopManualTrigger();
 
   // Kills every sprinkle/ray/sparkle currently in flight or still pending: sends MIDI All-Notes-
   // Off, drops every pending note-on/off in mEventScheduler, and cancels a trigger that was armed

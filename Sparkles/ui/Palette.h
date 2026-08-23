@@ -15,18 +15,22 @@ namespace sparkle_palette
 {
   // -- Background palette (original 8) --
   const IColor kPearlFrost(255, 243, 237, 247);
-  const IColor kRoseChrome(255, 240, 175, 198);
+  const IColor kFullWhite(255, 255, 255, 255);
+  const IColor kRoseChrome(255, 255, 163, 175);
   const IColor kPeachFoil(255, 255, 207, 163);
   const IColor kChampagne(255, 231, 200, 120);
   const IColor kMintSheen(255, 165, 230, 200);
   const IColor kAquaChrome(255, 121, 213, 232);
   const IColor kPeriwinkleFoil(255, 166, 180, 238);
   const IColor kAmethyst(255, 142, 98, 196);
+  const IColor kUnicornHair(255, 235, 103, 164);
+  const IColor kCustomGreen(255, 28, 122, 122);
 
   // -- Added later --
   const IColor kCobaltSheen(255, 90, 120, 220);
   const IColor kJadeFoil(255, 47, 184, 140);
   const IColor kFuchsiaChrome(255, 224, 85, 155);
+  const IColor kCustomRed(255, 204, 64, 36);
   const IColor kAmethystLifted(255, 154, 112, 204);
   const IColor kPeriwinkleWarmed(255, 179, 172, 238);
 
@@ -43,6 +47,7 @@ namespace sparkle_palette
   // Not in the reference swatch list -- a warm coral between kRoseChrome and kPeachFoil, for the
   // one tab (Detection) that needs its own hue distinct from its neighbors on either side.
   const IColor kCoral(255, 242, 140, 111);
+  const IColor kPaleOrange(255, 255, 175, 163);
 
   // One fill color per left-column tab pill (Quick Guide, General, Detection, Pitch/Timing, Note
   // Matrix, Synth, Presets, in that order -- see Sparkles.cpp's kParamGroups/EUITab), each paired
@@ -51,14 +56,32 @@ namespace sparkle_palette
   struct TabColor { IColor fill, text; };
   constexpr int kNumTabColors = 7;
   inline const TabColor kTabColors[kNumTabColors] = {
-    { kRoseChrome,     kTextOnRose },
-    { kPeachFoil,      kTextOnPeach },
-    { kCoral,          kTextOnPeach },
+    { kRoseChrome,     kLinesOuter },
+    { kPeachFoil,      kLinesOuter },
+    { kPaleOrange,     kLinesOuter },
     { kMintSheen,      kLinesOuter },
     { kAquaChrome,     kLinesOuter },
-    { kPeriwinkleFoil, kTextOnPeriwinkle },
+    { kPeriwinkleFoil, kLinesOuter },
     { kAmethyst,       kTextOnAmethyst },
+    // { kRoseChrome,     kTextOnRose },
+    // { kPeachFoil,      kTextOnPeach },
+    // { kPaleOrange,     kTextOnPeach },
+    // { kMintSheen,      kLinesOuter },
+    // { kAquaChrome,     kLinesOuter },
+    // { kPeriwinkleFoil, kTextOnPeriwinkle },
+    // { kAmethyst,       kTextOnAmethyst },
   };
+
+  // Shared stroke width for every outline/frame drawn across the UI -- tab pills, knob/switch/
+  // dropdown frames (kCompactStyle), action buttons (kActionButtonStyle/Shut Up/Root-Scale-Mode),
+  // the note matrix's grid borders, and the envelope meter's border -- one place to keep them all
+  // visually consistent instead of each picking its own value. 10% thinner than the tab pills'
+  // original 0.8f. A selected tab pill draws its frame at 2.5x this (see
+  // InsetShadowButtonControl::DrawWidget) so the active tab reads as clearly bolder than the rest --
+  // a literal +15% of 0.72px is well under a device pixel and doesn't render as any visible
+  // difference, so the multiplier is picked for visibility rather than following that number exactly.
+  constexpr float kLineThickness = 0.72f;
+  constexpr float kLineThicknessSelected = kLineThickness * 1.8f;
 
   // Translucent "frosted glass" card fill used behind the middle (tab content) and right
   // (persistent indicators) columns, so small text stays legible over the gradient background
