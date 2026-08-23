@@ -111,22 +111,31 @@ namespace
   constexpr ParamClusterDesc kTechnicalControls[] = {
     { kParamReactiveness,   "Env Reactiveness", EParamCtrlKind::Knob, 0.f,   18.f },
     { kParamConfidence,     "Note Confidence",  EParamCtrlKind::Knob, 90.f,  18.f },
-    { kParamMinNote,        "Min Note",         EParamCtrlKind::Knob, 180.f, 18.f },
-    { kParamMaxNote,        "Max Note",         EParamCtrlKind::Knob, 0.f,   80.f },
-    { kParamTriggerCooloff, "Trigger Cooloff",  EParamCtrlKind::Knob, 90.f,  80.f },
+    { kParamTriggerCooloff, "Trigger Cooloff",  EParamCtrlKind::Knob, 180.f, 18.f },
   };
 
-  // Rays + Sparkles/Ray only -- Range Min/Max + Wrap Mode moved to kRangeControls (Pitch and
-  // Timing tab, per "output note range and wrap mode" belonging there instead of General).
+  // Min Note/Max Note only -- the detected-pitch clamp range, split out of Technical into its own
+  // group so it reads as one thing rather than two knobs tacked onto an otherwise-unrelated list.
+  constexpr ParamClusterDesc kDetectionRangeControls[] = {
+    { kParamMinNote, "Min Note", EParamCtrlKind::Knob, 0.f,  18.f },
+    { kParamMaxNote, "Max Note", EParamCtrlKind::Knob, 90.f, 18.f },
+  };
+
+  // Rays + Sparkles/Ray only -- a single row now that it sits beside General instead of stacked
+  // under it (see kParamGroups). Range Min/Max + Wrap Mode split out into their own "Output Range"
+  // group below, which takes this group's old (x, y) slot under General.
   constexpr ParamClusterDesc kSprinkleStructureControls[] = {
-    { kParamNRays,           "Rays",         EParamCtrlKind::Knob, 0.f,  18.f },
-    { kParamNSparklesPerRay, "Sparkles/Ray", EParamCtrlKind::Knob, 90.f, 18.f, -1, kParamNSparklesPerRayRm },
+    { kParamNRays,           "Rays",         EParamCtrlKind::Knob, 0.f,   18.f },
+    { kParamNSparklesPerRay, "Sparkles/Ray", EParamCtrlKind::Knob, 90.f,  18.f, -1, kParamNSparklesPerRayRm },
   };
 
-  constexpr ParamClusterDesc kRangeControls[] = {
-    { kParamRangeMin, "Range Min", EParamCtrlKind::Knob,     0.f,   18.f },
-    { kParamRangeMax, "Range Max", EParamCtrlKind::Knob,     90.f,  18.f },
-    { kParamWrapMode, "Wrap",      EParamCtrlKind::Dropdown, 180.f, 18.f },
+  // Range Min/Max + Wrap Mode -- output note range/wrap is structural to the sprinkle, same as
+  // ray/sparkle counts, so it stays on the General tab, just split into its own group now that
+  // Sprinkle Structure has moved beside General (see kParamGroups).
+  constexpr ParamClusterDesc kOutputRangeControls[] = {
+    { kParamRangeMin,  "Range Min", EParamCtrlKind::Knob,     0.f,   18.f },
+    { kParamRangeMax,  "Range Max", EParamCtrlKind::Knob,     90.f,  18.f },
+    { kParamWrapMode,  "Wrap",      EParamCtrlKind::Dropdown, 180.f, 18.f },
   };
 
   constexpr ParamClusterDesc kOffsetControls[] = {
@@ -160,33 +169,44 @@ namespace
     { kParamWidth,       "Width",        EParamCtrlKind::Knob,     0.f,   80.f, -1, kParamWidthRm, kParamWidthSm },
     { kParamPhase,       "Phase",        EParamCtrlKind::Knob,     0.f,   142.f, -1, kParamPhaseRm, kParamPhaseSm },
     { kParamRayRotation, "Ray Rotation", EParamCtrlKind::Dropdown, 0.f,   204.f, -1, kParamRayRotationRm },
-    { kParamSeed,        "Seed",         EParamCtrlKind::Knob,     175.f, 204.f },
+    { kParamSeed,        "Seed",         EParamCtrlKind::Knob,     80.f,  21.f },
   };
 
   constexpr ParamClusterDesc kSynthControls[] = {
     { kParamWaveShape, "Wave Shape", EParamCtrlKind::Knob, 0.f,  18.f },
-    { kParamAttack,    "Attack",     EParamCtrlKind::Knob, 90.f, 18.f,  -1, kParamAttackRm,  kParamAttackSm },
-    { kParamDecay,     "Decay",      EParamCtrlKind::Knob, 0.f,  80.f,  -1, kParamDecayRm,   kParamDecaySm },
-    { kParamSustain,   "Sustain",    EParamCtrlKind::Knob, 0.f,  142.f, -1, kParamSustainRm, kParamSustainSm },
-    { kParamRelease,   "Release",    EParamCtrlKind::Knob, 0.f,  204.f, -1, kParamReleaseRm, kParamReleaseSm },
+    { kParamAttack,    "Attack",     EParamCtrlKind::Knob, 0.f,  80.f,  -1, kParamAttackRm,  kParamAttackSm },
+    { kParamDecay,     "Decay",      EParamCtrlKind::Knob, 0.f,  142.f,  -1, kParamDecayRm,   kParamDecaySm },
+    { kParamSustain,   "Sustain",    EParamCtrlKind::Knob, 0.f,  204.f, -1, kParamSustainRm, kParamSustainSm },
+    { kParamRelease,   "Release",    EParamCtrlKind::Knob, 0.f,  266.f, -1, kParamReleaseRm, kParamReleaseSm },
   };
 
   constexpr ParamGroupDesc kParamGroups[] = {
     { "General",               kGeneralControls,          (int) std::size(kGeneralControls),          EUITab::General,     0.f,   0.f },
-    { "Sprinkle Structure",    kSprinkleStructureControls, (int) std::size(kSprinkleStructureControls), EUITab::General,    182.f, 0.f },
-    { "Sparkle Properties",    kSparklePropertyControls,   (int) std::size(kSparklePropertyControls),   EUITab::General,    0.f,   82.f },
+    // Sits beside General (single row, same y=0) rather than stacked under it. General's own
+    // widest cluster (Passthrough) ends at x=162; this starts far enough right of that to clear
+    // Sparkles/Ray's own "p/ray" modifier chip too (reaching to ~191 past this group's own origin).
+    // If that ends up visibly tight against General, nudge this right a little more.
+    { "Sprinkle Structure",    kSprinkleStructureControls, (int) std::size(kSprinkleStructureControls), EUITab::General,    220.f, 0.f },
+    // Takes Sprinkle Structure's old (x, y) slot below General. Single row now (Range Min/Range
+    // Max/Wrap only -- Rays/Sparkles-per-Ray moved into Sprinkle Structure above), so it's the
+    // usual 82.f single-row group gap, same as General -> Detection -> Technical -> Range below.
+    { "Output Range",          kOutputRangeControls,       (int) std::size(kOutputRangeControls),       EUITab::General,    0.f,  82.f },
+    // Moved up from y=226 to y=164 (82 + 82) now that Output Range above it is single-row instead
+    // of two, freeing the space Sparkle Properties used to leave empty for Sprinkle Structure's
+    // old second row.
+    { "Sparkle Properties",    kSparklePropertyControls,   (int) std::size(kSparklePropertyControls),   EUITab::General,    0.f,   164.f },
     { "Detection",             kDetectionControls,         (int) std::size(kDetectionControls),         EUITab::Detection,  0.f,   0.f },
     { "Technical",             kTechnicalControls,         (int) std::size(kTechnicalControls),         EUITab::Detection,  0.f,   82.f },
+    { "Range",                 kDetectionRangeControls,    (int) std::size(kDetectionRangeControls),    EUITab::Detection,  0.f,   164.f },
     { "Trigger Offset",        kOffsetControls,            (int) std::size(kOffsetControls),            EUITab::PitchTiming, 0.f,  0.f },
     { "Timing",                kTimingControls,            (int) std::size(kTimingControls),            EUITab::PitchTiming, 0.f,  82.f },
     { "Pitch",                 kPitchControls,             (int) std::size(kPitchControls),             EUITab::PitchTiming, 0.f,  226.f },
-    { "Output Range",          kRangeControls,             (int) std::size(kRangeControls),             EUITab::PitchTiming, 0.f,  308.f },
     { "Synth",                 kSynthControls,             (int) std::size(kSynthControls),             EUITab::Synth,      0.f,   0.f },
-    // Stereo sits snugly right of Synth -- both have clusters as wide as 246px (a knob + two
-    // modifier chips), and there's only ~492px of paramsArea width to split between two such
-    // columns, so this runs a few px past paramsArea's right edge into the card's own padding. If
-    // that ends up visibly clipping against the right column, either nudge this left a little more
-    // (it'll then overlap Synth's own Wave Shape/Attack row instead) or shrink kChipW/kClusterGap.
+    // Stereo sits snugly right of Synth -- both have clusters as wide as a knob + two modifier
+    // chips, and there's only ~492px of paramsArea width to split between two such columns, so
+    // this runs a few px past paramsArea's right edge into the card's own padding. If that ends up
+    // visibly clipping against the right column, either nudge this left a little more (it'll then
+    // overlap Synth's own Wave Shape/Attack row instead) or shrink kChipWRay/kChipWSparkle/kClusterGap.
     { "Stereo (Audio Output)", kStereoControls,            (int) std::size(kStereoControls),            EUITab::Synth,      252.f, 0.f },
   };
 
@@ -215,13 +235,16 @@ namespace
   constexpr float kOptionButtonWScale = 0.8f;
   constexpr float kOptionButtonHScale = kOptionButtonWScale * 1.1f;
   // Every Rm/Sm modifier renders as a condensed text chip ("x1.20 p/ray") beside its base control
-  // instead of a small knob -- see ui/ModifierValueControl.h and the attach loop below.
-  constexpr float kChipW = 92.f;
+  // instead of a small knob -- see ui/ModifierValueControl.h and the attach loop below. Rm ("p/ray")
+  // and Sm ("p/sparkle") get their own width since "p/sparkle" is the longer word and was clipping
+  // at the narrower Rm width.
+  constexpr float kChipWRay = 45.f;      // Rm chip ("x1.20 p/ray")
+  constexpr float kChipWSparkle = 60.f;  // Sm chip ("x1.20 p/sparkle")
   constexpr float kChipH = 16.f;
   // Gap between a cluster's Rm chip and its Sm chip (see modX below) -- small on purpose, so the
   // two read as one continuous "x1.20 p/ray x0.90 p/sparkle" sentence rather than two separate
   // floating labels.
-  constexpr float kClusterGap = 3.f;
+  constexpr float kClusterGap = 5.0f;
   // IVKnobControl's actual circular widget ends up much narrower than kCellW once IVectorBase's
   // label/value bands are carved out of the cell (see IVKnobControl::GetRadius, which sizes the
   // circle off the *shorter* of the remaining widget width/height) -- anchoring a Knob cluster's
@@ -429,7 +452,10 @@ namespace
     kParamGain, kParamNRays, kParamNSparklesPerRay, kParamNSparklesPerRayRm,
     kParamVelocity, kParamLoudnessRm, kParamLoudnessSm, kParamDuration, kParamDurationUnit,
     kParamDurationRm, kParamDurationSm,
-    // Pitch and Timing
+    // Pitch and Timing -- Range Min/Max/Wrap Mode stay listed here positionally even though their
+    // UI group (Output Range) now lives on the General tab, since reordering this array means
+    // reordering every PresetDesc::values below too; this comment's tab labels are just origin
+    // documentation; a preset's actual scope is the id list, not which tab a param currently renders on.
     kParamPreDelay, kParamPreDelayUnit, kParamPreInterval, kParamRayDelay, kParamRayDelayUnit,
     kParamRayDelayRm, kParamDelay, kParamDelayUnit, kParamDelayRm, kParamDelaySm, kParamRayInterval,
     kParamRayIntervalRm, kParamInterval, kParamIntervalRm, kParamIntervalSm, kParamRangeMin,
@@ -555,9 +581,14 @@ Sparkles::Sparkles(const InstanceInfo& info)
   });
 
   // Names the current Sine/Triangle/Square/Saw blend (§7.7) instead of showing the raw 0-3 morph
-  // value, including in-between transitions (e.g. "Sine -> Tri 40%").
+  // value, including in-between transitions (e.g. "Sin->Tri 40%"). 3-letter abbreviations rather
+  // than full names or a unicode wave glyph (~/\_) -- kCompactStyle's value text renders in
+  // Fredoka-Regular (see Palette.h), a decorative Google-Fonts display face with only ~320 glyphs
+  // (Latin/Latin-Extended); it has no wave/triangle/square symbols at all, so a glyph would just
+  // render as tofu. "Sine -> Triangle 40%" also doesn't fit the knob's compact value-text band --
+  // abbreviating is the only fix that stays inside this font's actual coverage.
   GetParam(kParamWaveShape)->SetDisplayFunc([](double value, WDL_String& str) {
-    static constexpr const char* kNames[4] = { "Sine", "Triangle", "Square", "Saw" };
+    static constexpr const char* kNames[4] = { "Sin", "Tri", "Sqr", "Saw" };
     const double clamped = std::clamp(value, 0.0, 3.0);
     int segment = static_cast<int>(std::floor(clamped));
     segment = std::clamp(segment, 0, 2);
@@ -567,7 +598,7 @@ Sparkles::Sparkles(const InstanceInfo& info)
     else if (blend > 0.995)
       str.Set(kNames[segment + 1]);
     else
-      str.SetFormatted(32, "%s -> %s %d%%", kNames[segment], kNames[segment + 1], static_cast<int>(std::lround(blend * 100.0)));
+      str.SetFormatted(32, "%s->%s %d%%", kNames[segment], kNames[segment + 1], static_cast<int>(std::lround(blend * 100.0)));
   });
 
 #if IPLUG_EDITOR // http://bit.ly/2S64BDd
@@ -772,12 +803,12 @@ Sparkles::Sparkles(const InstanceInfo& info)
         const bool clusterIsKnobLike = cluster.kind == EParamCtrlKind::Knob || cluster.kind == EParamCtrlKind::TimeKnob;
         float modX = cx + (clusterIsKnobLike ? kModifierOffsetKnobW : kCellW) + kClusterGap;
         if (cluster.rmParamIdx >= 0) {
-          const IRECT modRect(modX, clusterRect.MH() - kChipH * 0.5f, modX + kChipW, clusterRect.MH() + kChipH * 0.5f);
+          const IRECT modRect(modX, clusterRect.MH() - kChipH * 0.5f, modX + kChipWRay, clusterRect.MH() + kChipH * 0.5f);
           flatControls.push_back(FlatCtrl{ modRect.GetPadded(-1.f), cluster.rmParamIdx, "p/ray", EParamCtrlKind::Knob, -1, true, group.tab });
-          modX += kChipW + kClusterGap;
+          modX += kChipWRay + kClusterGap;
         }
         if (cluster.smParamIdx >= 0) {
-          const IRECT modRect(modX, clusterRect.MH() - kChipH * 0.5f, modX + kChipW, clusterRect.MH() + kChipH * 0.5f);
+          const IRECT modRect(modX, clusterRect.MH() - kChipH * 0.5f, modX + kChipWSparkle, clusterRect.MH() + kChipH * 0.5f);
           flatControls.push_back(FlatCtrl{ modRect.GetPadded(-1.f), cluster.smParamIdx, "p/sparkle", EParamCtrlKind::Knob, -1, true, group.tab });
         }
       }
@@ -817,8 +848,20 @@ Sparkles::Sparkles(const InstanceInfo& info)
       setTabbed(kCtrlTagQuickGuideImage, quickGuideBounds, EUITab::QuickGuide);
       setTabbed(kCtrlTagNoteBars, noteBarsBounds, EUITab::Detection);
 
-      for (int i = 0; i < (int) flatControls.size(); i++)
-        setTabbed(kCtrlTagFirstParamControl + i, flatControls[i].rect, flatControls[i].tab);
+      for (int i = 0; i < (int) flatControls.size(); i++) {
+        // Seed (§7.6) is only meaningful when Panning = Random -- combine the ordinary
+        // tab-visibility Hide() with that check instead of just setTabbed's, so switching to a
+        // tab where Panning != Random can't leave Seed showing. OnParamChangeUI (Sparkles.cpp)
+        // reapplies this same combined condition live as Panning itself changes, since that
+        // doesn't re-run mLayoutFunc.
+        if (flatControls[i].paramIdx == kParamSeed) {
+          IControl* pSeed = pGraphics->GetControlWithTag(kCtrlTagFirstParamControl + i);
+          pSeed->SetTargetAndDrawRECTs(flatControls[i].rect);
+          pSeed->Hide(flatControls[i].tab != activeTab || GetParam(kParamPanning)->Int() != (int) sparkle_core::PanMode::Random);
+        }
+        else
+          setTabbed(kCtrlTagFirstParamControl + i, flatControls[i].rect, flatControls[i].tab);
+      }
       for (int g = 0; g < kNumParamGroups; g++)
         setTabbed(kCtrlTagFirstParamControl + (int) flatControls.size() + g, groupLabelBounds[g], kParamGroups[g].tab);
       return;
@@ -1049,6 +1092,23 @@ void Sparkles::ApplyPreset(int idx)
         pControl->SetValueFromDelegate(pControl->GetParam()->GetNormalized());
       });
     }
+  }
+}
+
+// Seed (§7.6) is only meaningful when Panning = Random -- hides/shows it on the UI thread as
+// Panning changes, on top of (never instead of) mLayoutFunc's own tab-visibility Hide() (see
+// the flatControls loop above, which applies this same combined condition on attach/resize/
+// tab-switch -- needed here too since changing Panning alone doesn't re-run mLayoutFunc). Guarded
+// on mActiveTab so this can't pop Seed into view sitting at the Stereo group's coordinates while
+// some other tab is the one actually showing.
+void Sparkles::OnParamChangeUI(int paramIdx, EParamSource source)
+{
+  if (paramIdx != kParamPanning)
+    return;
+
+  if (IGraphics* pGraphics = GetUI()) {
+    const bool showSeed = mActiveTab == (int) EUITab::Synth && GetParam(kParamPanning)->Int() == (int) sparkle_core::PanMode::Random;
+    pGraphics->HideControl(kParamSeed, !showSeed);
   }
 }
 

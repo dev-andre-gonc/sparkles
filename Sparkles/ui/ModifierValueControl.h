@@ -17,8 +17,8 @@ using namespace igraphics;
 // cluster attach loop in Sparkles.cpp) rather than stacked as a small square knob -- the base
 // control already names the property, so this only ever needs to show the multiplier value.
 // Text is left-aligned (EAlign::Near) and the control's own rect starts right beside the base
-// knob -- centering it in the wider chip rect (kChipW) made the text read as if it were floating
-// far from the knob it modifies, even though the box itself was already close.
+// knob -- centering it in the wider chip rect (kChipWRay/kChipWSparkle) made the text read as if
+// it were floating far from the knob it modifies, even though the box itself was already close.
 //
 // Ray Rotation's Rm ("Keep"/"Invert") is the one enum-valued exception -- rather than a
 // continuous multiplier, GetParam()->Value() there is just 0 or 1, so it's shown as "x1"/"x-1"

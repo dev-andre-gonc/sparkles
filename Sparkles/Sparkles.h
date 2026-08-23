@@ -86,6 +86,11 @@ public:
   // size but the one true one; no override needed. See config.h's comment and CLAUDE.md.
   bool OnHostRequestingSupportedViewConfiguration(int width, int height) override { return ConstrainEditorResize(width, height); }
 
+  // Seed (§7.6) is only meaningful when Panning = Random -- hides/shows it on the UI thread as
+  // Panning changes, on top of (never instead of) mLayoutFunc's own tab-visibility Hide(). See
+  // this override's definition in Sparkles.cpp for why both places need the same combined check.
+  void OnParamChangeUI(int paramIdx, EParamSource source) override;
+
 private:
   // Which of EUITab (see Sparkles.cpp's anonymous namespace) is currently shown -- plain int here
   // so this header doesn't need EUITab's definition, cast at the few call sites that touch it.
