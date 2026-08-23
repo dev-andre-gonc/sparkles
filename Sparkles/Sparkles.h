@@ -16,6 +16,7 @@
 #if IPLUG_EDITOR
 #include "ui/BackgroundImageControl.h"
 #include "ui/EnvelopeMeterControl.h"
+#include "ui/GroupMarkerControl.h"
 #include "ui/ModifierValueControl.h"
 #include "ui/NoteBarsControl.h"
 #include "ui/NoteMatrixControl.h"

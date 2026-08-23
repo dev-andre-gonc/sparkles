@@ -96,117 +96,138 @@ namespace
 
   // Output Mode + Passthrough only -- Detect/Trigger On/Threshold/Min Velocity live in
   // kDetectionControls below now (General vs. Detection tabs, see EUITab).
+  // Every cluster's x/y below was rescaled along with kCellW/kKnobCellH/kDropdownCellH etc. (see
+  // those constants) so ~20%-bigger controls still land with clear gaps between them: the common
+  // within-row column step grew from 90 to 108 (kCellW + a slightly wider gap), and the common
+  // within-group row step grew from 62 to 70 (constrained by the Synth tab's own 5-row stack --
+  // see kParamGroups' comment on the Synth entry for the exact margin this leaves). Every group's
+  // first row still starts right under its own heading, just at y=22 now instead of y=18 --
+  // kGroupLabelH itself stayed at 18 (see that constant's comment), so this only opens up a few
+  // extra px of breathing room under the heading, it doesn't change the heading's own size.
   constexpr ParamClusterDesc kGeneralControls[] = {
-    { kParamOutputMode,     "Output",       EParamCtrlKind::Dropdown, 0.f,  18.f },
-    { kParamGain,           "Passthrough",  EParamCtrlKind::Knob,     90.f, 18.f },
+    { kParamOutputMode,     "Output",       EParamCtrlKind::Dropdown, 5.f,   22.f },
+    { kParamGain,           "Passthrough",  EParamCtrlKind::Knob,     103.f, 22.f },
   };
 
   constexpr ParamClusterDesc kDetectionControls[] = {
-    { kParamDetectionMode,  "Detect",       EParamCtrlKind::Dropdown, 0.f,   18.f },
-    { kParamTriggerOn,      "Trigger On",   EParamCtrlKind::Dropdown, 90.f,  18.f },
-    { kParamThreshold,      "Threshold",    EParamCtrlKind::Knob,     180.f, 18.f },
-    { kParamVelocityDetect, "Min Velocity", EParamCtrlKind::Knob,     270.f, 18.f },
+    { kParamDetectionMode,  "Detect",       EParamCtrlKind::Dropdown, 5.f,   22.f },
+    { kParamTriggerOn,      "Trigger On",   EParamCtrlKind::Dropdown, 113.f, 22.f },
+    { kParamThreshold,      "Threshold",    EParamCtrlKind::Knob,     221.f, 22.f },
+    { kParamVelocityDetect, "Min Velocity", EParamCtrlKind::Knob,     329.f, 22.f },
   };
 
   constexpr ParamClusterDesc kTechnicalControls[] = {
-    { kParamReactiveness,   "Env Reactiveness", EParamCtrlKind::Knob, 0.f,   18.f },
-    { kParamConfidence,     "Note Confidence",  EParamCtrlKind::Knob, 90.f,  18.f },
-    { kParamTriggerCooloff, "Trigger Cooloff",  EParamCtrlKind::Knob, 180.f, 18.f },
+    { kParamTriggerCooloff, "Trigger Cooloff",  EParamCtrlKind::Knob, 5.f,   22.f },
+    { kParamReactiveness,   "Env Reactiveness", EParamCtrlKind::Knob, 113.f, 22.f },
+    { kParamConfidence,     "Note Confidence",  EParamCtrlKind::Knob, 221.f, 22.f },
   };
 
   // Min Note/Max Note only -- the detected-pitch clamp range, split out of Technical into its own
   // group so it reads as one thing rather than two knobs tacked onto an otherwise-unrelated list.
   constexpr ParamClusterDesc kDetectionRangeControls[] = {
-    { kParamMinNote, "Min Note", EParamCtrlKind::Knob, 0.f,  18.f },
-    { kParamMaxNote, "Max Note", EParamCtrlKind::Knob, 90.f, 18.f },
+    { kParamMinNote, "Min Note", EParamCtrlKind::Knob, 5.f,   22.f },
+    { kParamMaxNote, "Max Note", EParamCtrlKind::Knob, 103.f, 22.f },
   };
 
   // Rays + Sparkles/Ray only -- a single row now that it sits beside General instead of stacked
   // under it (see kParamGroups). Range Min/Max + Wrap Mode split out into their own "Output Range"
   // group below, which takes this group's old (x, y) slot under General.
   constexpr ParamClusterDesc kSprinkleStructureControls[] = {
-    { kParamNRays,           "Rays",         EParamCtrlKind::Knob, 0.f,   18.f },
-    { kParamNSparklesPerRay, "Sparkles/Ray", EParamCtrlKind::Knob, 90.f,  18.f, -1, kParamNSparklesPerRayRm },
+    { kParamNRays,           "Rays",         EParamCtrlKind::Knob, 5.f,   22.f },
+    { kParamNSparklesPerRay, "Sparkles/Ray", EParamCtrlKind::Knob, 103.f, 22.f, -1, kParamNSparklesPerRayRm },
   };
 
   // Range Min/Max + Wrap Mode -- output note range/wrap is structural to the sprinkle, same as
   // ray/sparkle counts, so it stays on the General tab, just split into its own group now that
   // Sprinkle Structure has moved beside General (see kParamGroups).
   constexpr ParamClusterDesc kOutputRangeControls[] = {
-    { kParamRangeMin,  "Range Min", EParamCtrlKind::Knob,     0.f,   18.f },
-    { kParamRangeMax,  "Range Max", EParamCtrlKind::Knob,     90.f,  18.f },
-    { kParamWrapMode,  "Wrap",      EParamCtrlKind::Dropdown, 180.f, 18.f },
+    { kParamRangeMin,  "Range Min", EParamCtrlKind::Knob,     5.f,   22.f },
+    { kParamRangeMax,  "Range Max", EParamCtrlKind::Knob,     103.f, 22.f },
+    { kParamWrapMode,  "Wrap",      EParamCtrlKind::Dropdown, 201.f, 22.f },
   };
 
   constexpr ParamClusterDesc kOffsetControls[] = {
-    { kParamPreDelayUnit, "Delay Unit",   EParamCtrlKind::Toggle,   0.f,   18.f },
-    { kParamPreDelay,     "Pre Delay",    EParamCtrlKind::TimeKnob, 90.f,  18.f, kParamPreDelayUnit },
-    { kParamPreInterval,  "Pre Interval", EParamCtrlKind::Knob,     180.f, 18.f },
+    { kParamPreDelayUnit, "Delay Unit",   EParamCtrlKind::Toggle,   5.f,   22.f },
+    { kParamPreDelay,     "Pre Delay",    EParamCtrlKind::TimeKnob, 80.f, 22.f, kParamPreDelayUnit },
+    { kParamPreInterval,  "Pre Interval", EParamCtrlKind::Knob,     178.f, 22.f },
   };
 
   constexpr ParamClusterDesc kSparklePropertyControls[] = {
-    { kParamVelocity,     "Velocity",      EParamCtrlKind::Knob,     0.f,  18.f, -1, kParamLoudnessRm, kParamLoudnessSm },
-    { kParamDurationUnit, "Duration Unit", EParamCtrlKind::Toggle,   0.f,  80.f },
-    { kParamDuration,     "Duration",      EParamCtrlKind::TimeKnob, 90.f, 80.f, kParamDurationUnit, kParamDurationRm, kParamDurationSm },
+    { kParamVelocity,     "Velocity",      EParamCtrlKind::Knob,     5.f,   22.f, -1, kParamLoudnessRm, kParamLoudnessSm },
+    { kParamDurationUnit, "Duration Unit", EParamCtrlKind::Toggle,   5.f,   100.f },
+    { kParamDuration,     "Duration",      EParamCtrlKind::TimeKnob, 80.f, 100.f, kParamDurationUnit, kParamDurationRm, kParamDurationSm },
   };
 
   constexpr ParamClusterDesc kTimingControls[] = {
-    { kParamRayDelayUnit, "Ray Delay Unit", EParamCtrlKind::Toggle,   0.f,  18.f },
-    { kParamRayDelay,     "Ray Delay",      EParamCtrlKind::TimeKnob, 90.f, 18.f, kParamRayDelayUnit, kParamRayDelayRm },
-    { kParamDelayUnit,    "Delay Unit",     EParamCtrlKind::Toggle,   0.f,  80.f },
-    { kParamDelay,        "Delay",          EParamCtrlKind::TimeKnob, 90.f, 80.f, kParamDelayUnit, kParamDelayRm, kParamDelaySm },
+    { kParamRayDelayUnit, "Ray Delay Unit", EParamCtrlKind::Toggle,   5.f,   22.f },
+    { kParamRayDelay,     "Ray Delay",      EParamCtrlKind::TimeKnob, 80.f, 22.f, kParamRayDelayUnit, kParamRayDelayRm },
+    { kParamDelayUnit,    "Delay Unit",     EParamCtrlKind::Toggle,   5.f,   92.f },
+    { kParamDelay,        "Delay",          EParamCtrlKind::TimeKnob, 80.f, 92.f, kParamDelayUnit, kParamDelayRm, kParamDelaySm },
   };
 
   constexpr ParamClusterDesc kPitchControls[] = {
-    { kParamRayInterval, "Ray Interval", EParamCtrlKind::Knob, 0.f,   18.f, -1, kParamRayIntervalRm },
-    { kParamInterval,    "Interval",     EParamCtrlKind::Knob, 160.f, 18.f, -1, kParamIntervalRm, kParamIntervalSm },
+    { kParamRayInterval, "Ray Interval", EParamCtrlKind::Knob, 5.f,   22.f, -1, kParamRayIntervalRm },
+    { kParamInterval,    "Interval",     EParamCtrlKind::Knob, 145.f, 22.f, -1, kParamIntervalRm, kParamIntervalSm },
   };
 
   // Ray Rotation's Rm ("Keep"/"Invert") renders through the same numeric ModifierValueControl
   // chip as every other Rm now, formatted as "x1"/"x-1" -- see that file's header comment.
   constexpr ParamClusterDesc kStereoControls[] = {
-    { kParamPanning,     "Panning",      EParamCtrlKind::Dropdown, 0.f,   18.f },
-    { kParamWidth,       "Width",        EParamCtrlKind::Knob,     0.f,   80.f, -1, kParamWidthRm, kParamWidthSm },
-    { kParamPhase,       "Phase",        EParamCtrlKind::Knob,     0.f,   142.f, -1, kParamPhaseRm, kParamPhaseSm },
-    { kParamRayRotation, "Ray Rotation", EParamCtrlKind::Dropdown, 0.f,   204.f, -1, kParamRayRotationRm },
-    { kParamSeed,        "Seed",         EParamCtrlKind::Knob,     80.f,  21.f },
+    { kParamPanning,     "Panning",      EParamCtrlKind::Dropdown, 5.f,  22.f },
+    { kParamWidth,       "Width",        EParamCtrlKind::Knob,     5.f,  92.f, -1, kParamWidthRm, kParamWidthSm },
+    { kParamPhase,       "Phase",        EParamCtrlKind::Knob,     5.f,  162.f, -1, kParamPhaseRm, kParamPhaseSm },
+    { kParamRayRotation, "Ray Rotation", EParamCtrlKind::Dropdown, 5.f,  232.f, -1, kParamRayRotationRm },
+    { kParamSeed,        "Seed",         EParamCtrlKind::Knob,     101.f, 22.f },
   };
 
   constexpr ParamClusterDesc kSynthControls[] = {
-    { kParamWaveShape, "Wave Shape", EParamCtrlKind::Knob, 0.f,  18.f },
-    { kParamAttack,    "Attack",     EParamCtrlKind::Knob, 0.f,  80.f,  -1, kParamAttackRm,  kParamAttackSm },
-    { kParamDecay,     "Decay",      EParamCtrlKind::Knob, 0.f,  142.f,  -1, kParamDecayRm,   kParamDecaySm },
-    { kParamSustain,   "Sustain",    EParamCtrlKind::Knob, 0.f,  204.f, -1, kParamSustainRm, kParamSustainSm },
-    { kParamRelease,   "Release",    EParamCtrlKind::Knob, 0.f,  266.f, -1, kParamReleaseRm, kParamReleaseSm },
+    { kParamWaveShape, "Wave Shape", EParamCtrlKind::Knob, 5.f,  22.f },
+    { kParamAttack,    "Attack",     EParamCtrlKind::Knob, 5.f,  92.f,  -1, kParamAttackRm,  kParamAttackSm },
+    { kParamDecay,     "Decay",      EParamCtrlKind::Knob, 5.f,  162.f,  -1, kParamDecayRm,   kParamDecaySm },
+    { kParamSustain,   "Sustain",    EParamCtrlKind::Knob, 5.f,  232.f, -1, kParamSustainRm, kParamSustainSm },
+    { kParamRelease,   "Release",    EParamCtrlKind::Knob, 5.f,  302.f, -1, kParamReleaseRm, kParamReleaseSm },
   };
 
+  // Every group's own (x, y) below: x (horizontal position) is deliberately UNCHANGED from before
+  // this pass -- only y grew, and only where a group stacks under another one (Sprinkle Structure/
+  // Stereo, which sit beside General/Synth instead, keep y=0 too). The vertical step from one
+  // group's origin to the next single-row group's (see Output Range -> Sparkle Properties,
+  // Detection -> Technical -> Range, Trigger Offset -> Timing) grew from 82 to 99 -- first-row
+  // offset (22) + kKnobCellH (65) + a slightly wider gap (12) -- and an extra row of clusters
+  // inside a group (Timing, Sparkle Properties) adds one more within-group row step (70) on top of
+  // that, same relationship the old 82/62 pair had.
   constexpr ParamGroupDesc kParamGroups[] = {
     { "General",               kGeneralControls,          (int) std::size(kGeneralControls),          EUITab::General,     0.f,   0.f },
     // Sits beside General (single row, same y=0) rather than stacked under it. General's own
-    // widest cluster (Passthrough) ends at x=162; this starts far enough right of that to clear
-    // Sparkles/Ray's own "p/ray" modifier chip too (reaching to ~191 past this group's own origin).
-    // If that ends up visibly tight against General, nudge this right a little more.
-    { "Sprinkle Structure",    kSprinkleStructureControls, (int) std::size(kSprinkleStructureControls), EUITab::General,    220.f, 0.f },
+    // widest cluster (Passthrough) ends at x=194 now; this starts far enough right of that to clear
+    // Sparkles/Ray's own "p/ray" modifier chip too. If that ends up visibly tight against General,
+    // nudge this right a little more.
+    { "Sprinkle Structure",    kSprinkleStructureControls, (int) std::size(kSprinkleStructureControls), EUITab::General,    230.f, 0.f },
     // Takes Sprinkle Structure's old (x, y) slot below General. Single row now (Range Min/Range
     // Max/Wrap only -- Rays/Sparkles-per-Ray moved into Sprinkle Structure above), so it's the
-    // usual 82.f single-row group gap, same as General -> Detection -> Technical -> Range below.
-    { "Output Range",          kOutputRangeControls,       (int) std::size(kOutputRangeControls),       EUITab::General,    0.f,  82.f },
-    // Moved up from y=226 to y=164 (82 + 82) now that Output Range above it is single-row instead
-    // of two, freeing the space Sparkle Properties used to leave empty for Sprinkle Structure's
-    // old second row.
-    { "Sparkle Properties",    kSparklePropertyControls,   (int) std::size(kSparklePropertyControls),   EUITab::General,    0.f,   164.f },
+    // usual 99.f single-row group gap, same as General -> Detection -> Technical -> Range below.
+    { "Output Range",          kOutputRangeControls,       (int) std::size(kOutputRangeControls),       EUITab::General,    0.f,  106.f },
+    // Below Output Range by one more single-row group step (99 + 99 = 198).
+    { "Sparkle Properties",    kSparklePropertyControls,   (int) std::size(kSparklePropertyControls),   EUITab::General,    0.f,   210.f },
     { "Detection",             kDetectionControls,         (int) std::size(kDetectionControls),         EUITab::Detection,  0.f,   0.f },
-    { "Technical",             kTechnicalControls,         (int) std::size(kTechnicalControls),         EUITab::Detection,  0.f,   82.f },
-    { "Range",                 kDetectionRangeControls,    (int) std::size(kDetectionRangeControls),    EUITab::Detection,  0.f,   164.f },
+    { "Technical",             kTechnicalControls,         (int) std::size(kTechnicalControls),         EUITab::Detection,  0.f,   220.f },
+    { "Range",                 kDetectionRangeControls,    (int) std::size(kDetectionRangeControls),    EUITab::Detection,  0.f,   110.f },
     { "Trigger Offset",        kOffsetControls,            (int) std::size(kOffsetControls),            EUITab::PitchTiming, 0.f,  0.f },
-    { "Timing",                kTimingControls,            (int) std::size(kTimingControls),            EUITab::PitchTiming, 0.f,  82.f },
-    { "Pitch",                 kPitchControls,             (int) std::size(kPitchControls),             EUITab::PitchTiming, 0.f,  226.f },
+    { "Timing",                kTimingControls,            (int) std::size(kTimingControls),            EUITab::PitchTiming, 0.f,  110.f },
+    // Timing (above) is two cluster rows tall, so Pitch sits one extra within-group row step (70)
+    // further down than a plain single-row-group gap would put it: 99 + 70 + 99 = 268.
+    { "Pitch",                 kPitchControls,             (int) std::size(kPitchControls),             EUITab::PitchTiming, 0.f,  279.f },
+    // Synth is a single group with 5 stacked cluster rows -- the tallest stack on any tab, and what
+    // actually constrains the within-group row step (70) above: 4 gaps x 70 + kKnobCellH (65) fits
+    // paramsArea's ~374px height with only a few px of margin left below Release. If Synth ever
+    // grows a 6th row, the row step will need to shrink again to keep fitting.
     { "Synth",                 kSynthControls,             (int) std::size(kSynthControls),             EUITab::Synth,      0.f,   0.f },
     // Stereo sits snugly right of Synth -- both have clusters as wide as a knob + two modifier
-    // chips, and there's only ~492px of paramsArea width to split between two such columns, so
-    // this runs a few px past paramsArea's right edge into the card's own padding. If that ends up
-    // visibly clipping against the right column, either nudge this left a little more (it'll then
-    // overlap Synth's own Wave Shape/Attack row instead) or shrink kChipWRay/kChipWSparkle/kClusterGap.
+    // chips, and there's only ~484px of paramsArea width to split between two such columns, so
+    // this leaves a narrower (but still positive) gap than before against both Synth's own widest
+    // row and paramsArea's own right edge. If that ends up visibly tight, either nudge this left a
+    // little more (it'll then overlap Synth's own Attack/Decay/etc. rows instead) or shrink
+    // kChipWRay/kChipWSparkle/kClusterGap.
     { "Stereo (Audio Output)", kStereoControls,            (int) std::size(kStereoControls),            EUITab::Synth,      252.f, 0.f },
   };
 
@@ -215,13 +236,17 @@ namespace
   // Per-control cell size used when attaching each FlatCtrl in mLayoutFunc. Knob cells are taller
   // than dropdown cells since a knob needs room for its widget plus label plus value text above
   // and below it.
-  constexpr float kCellW = 72.f;
-  constexpr float kKnobCellH = 54.f;
+  // ~20% bigger than the original 72/54/46 -- General/Detection/PitchTiming/Synth were reorganized
+  // (see kParamGroups' group.y values and every ParamClusterDesc's x/y below) to free up the room
+  // this needs; group.x (horizontal group position), kGroupLabelH, and kGroupLabelText's own size
+  // deliberately stayed put, see those constants' comments.
+  constexpr float kCellW = 86.f;
+  constexpr float kKnobCellH = 65.f;
   // Switch/dropdown cells show a caption line plus a value line just like a knob does (see
   // EParamCtrlKind::Toggle/Dropdown in the attach loop below, both IVSwitchControl) -- tall enough
   // for both without cropping, though still shorter than a knob cell since there's no circular
   // widget to make room for.
-  constexpr float kDropdownCellH = 46.f;
+  constexpr float kDropdownCellH = 55.f;
   // Toggle/Dropdown-kind clusters (the option-cycling pill buttons -- Wrap, Detect, Trigger On,
   // Output Mode, Panning, Ray Rotation, the Delay/Duration Unit toggles) render smaller than their
   // full cell -- see the FlatCtrl loop below, which scales clusterRect down to
@@ -234,17 +259,27 @@ namespace
   // itself -- is the place to fine-tune.
   constexpr float kOptionButtonWScale = 0.8f;
   constexpr float kOptionButtonHScale = kOptionButtonWScale * 1.1f;
+  // Toggle/Dropdown-kind clusters (IVSwitchControl, valueInButton) carve their caption label off
+  // the TOP of the cell only -- the value renders inside the button itself instead of a separate
+  // band below (see the EParamCtrlKind::Toggle/Dropdown case in the attach loop), unlike a knob,
+  // which carves label above AND value below in equal bands, leaving its widget centred in the
+  // cell. That asymmetry means the actual clickable pill sits below the cell's own vertical
+  // centre -- an Rm chip (currently only Ray Rotation's) anchored off the full cell would float
+  // above the pill instead of lining up with it. kOptionButtonLabelH approximates the carved label
+  // band (measured against kCompactStyle's 12px label text) so the chip loop below can offset off
+  // the pill's real centre instead -- re-measure if kCompactStyle's label size ever changes.
+  constexpr float kOptionButtonLabelH = 15.f;
   // Every Rm/Sm modifier renders as a condensed text chip ("x1.20 p/ray") beside its base control
   // instead of a small knob -- see ui/ModifierValueControl.h and the attach loop below. Rm ("p/ray")
   // and Sm ("p/sparkle") get their own width since "p/sparkle" is the longer word and was clipping
   // at the narrower Rm width.
-  constexpr float kChipWRay = 45.f;      // Rm chip ("x1.20 p/ray")
-  constexpr float kChipWSparkle = 60.f;  // Sm chip ("x1.20 p/sparkle")
-  constexpr float kChipH = 16.f;
+  constexpr float kChipWRay = 54.f;      // Rm chip ("x1.20 p/ray")
+  constexpr float kChipWSparkle = 72.f;  // Sm chip ("x1.20 p/sparkle")
+  constexpr float kChipH = 19.f;
   // Gap between a cluster's Rm chip and its Sm chip (see modX below) -- small on purpose, so the
   // two read as one continuous "x1.20 p/ray x0.90 p/sparkle" sentence rather than two separate
   // floating labels.
-  constexpr float kClusterGap = 5.0f;
+  constexpr float kClusterGap = 6.0f;
   // IVKnobControl's actual circular widget ends up much narrower than kCellW once IVectorBase's
   // label/value bands are carved out of the cell (see IVKnobControl::GetRadius, which sizes the
   // circle off the *shorter* of the remaining widget width/height) -- anchoring a Knob cluster's
@@ -252,14 +287,34 @@ namespace
   // TimeMagnitudeControl (TimeKnob) is itself an IVKnobControl now (see that file's header
   // comment) and ends up the exact same size, so Knob/TimeKnob-kind clusters share this same
   // offset; Dropdown-kind clusters (no circular widget to clear) keep using the full kCellW.
-  // Measured against kCompactStyle's 10px label/value text at kKnobCellH -- re-measure if either
+  // Measured against kCompactStyle's 12px label/value text at kKnobCellH -- re-measure if either
   // changes (a too-small value re-creates the modifier-chip-on-top-of-the-knob bug this fixed).
   // Padded a few extra px past that measurement on purpose -- err on the side of a hair too far
   // rather than risk clipping the knob again.
-  constexpr float kModifierOffsetKnobW = 56.f;
+  constexpr float kModifierOffsetKnobW = 67.f;
   // Height reserved above a group's first row of clusters for its own name heading -- see
-  // kGroupLabelText and the y offsets above (every group's first-row clusters start at y=18).
+  // kGroupLabelText and the y offsets above (every group's first-row clusters start at y=22).
+  // Deliberately NOT scaled up with the control sizes below -- the label's own text stays its
+  // original size (see kGroupLabelText), so the band it needs stays the same too.
   constexpr float kGroupLabelH = 18.f;
+
+  // Dot-and-line marker (ui/GroupMarkerControl.h) to the left of each group's heading -- a lighter
+  // stand-in for the old bordered box around a group's knobs. kGroupMarkerR is a *layout* radius,
+  // not the dot's drawn size -- it fixes the marker's centre x (and, plus kGroupMarkerTextGap, how
+  // far the label text itself shifts right in groupLabelBounds below) so the dot's own left edge
+  // at that layout radius would land exactly where the label used to start. The dot is actually
+  // drawn at kGroupMarkerDotR (smaller than kGroupMarkerR -- see groupMarkerBounds below, which
+  // sizes GroupMarkerControl's bounds off the smaller radius around that same fixed centre, so
+  // shrinking it doesn't also shrink the label's own gap). kGroupMarkerYShift nudges the dot (and
+  // so the line, which starts below it) up off the label's geometric vertical centre -- kGroupLabelText
+  // is top-aligned (EVAlign::Top, see that constant's own comment), so a glyph's visual centre sits
+  // above groupLabelBounds.MH(), not on it. The line's own start/length is computed per-group in
+  // mLayoutFunc's group loop (see groupContentBottom there), not here -- it depends on where that
+  // group's clusters actually end.
+  constexpr float kGroupMarkerR = 2.5f;
+  constexpr float kGroupMarkerDotR = kGroupMarkerR * 0.8f;
+  constexpr float kGroupMarkerTextGap = 6.f;
+  constexpr float kGroupMarkerYShift = -3.f;
 
   // IVStyle's default label/value text (~19px/14px) is sized for the framework's normal control
   // sizes -- at these compact cell sizes it doesn't just look oversized, IVectorBase::MakeRects
@@ -269,8 +324,8 @@ namespace
   // permanently unclickable control). kCompactStyle keeps that carve-out small enough to leave a
   // real widget behind.
   const IVStyle kCompactStyle = DEFAULT_STYLE
-    .WithLabelText(DEFAULT_LABEL_TEXT.WithSize(10.f).WithFGColor(sparkle_palette::kLinesOuter).WithFont(sparkle_palette::kFontFredokaMedium))
-    .WithValueText(DEFAULT_VALUE_TEXT.WithSize(10.f).WithFGColor(sparkle_palette::kLinesInterior).WithFont(sparkle_palette::kFontFredokaRegular))
+    .WithLabelText(DEFAULT_LABEL_TEXT.WithSize(12.f).WithFGColor(sparkle_palette::kLinesOuter).WithFont(sparkle_palette::kFontFredokaMedium))
+    .WithValueText(DEFAULT_VALUE_TEXT.WithSize(12.f).WithFGColor(sparkle_palette::kLinesInterior).WithFont(sparkle_palette::kFontFredokaRegular))
     .WithColor(kFG, sparkle_palette::kPearlFrost)
     .WithColor(kPR, sparkle_palette::kPeriwinkleWarmed)
     .WithColor(kFR, sparkle_palette::kLinesInterior)
@@ -421,6 +476,20 @@ namespace
       .WithColor(kPR, fill.WithContrast(-0.15f))
       .WithColor(kX1, fill.WithContrast(-0.4f))
       .WithColor(kFR, kLinesOuter.WithOpacity(0.6f));
+  }
+
+  // Makes a knob's pointer notch match its own outer frame ring's color (DrawPressableEllipse's
+  // g.DrawEllipse(kFR, ..., frameThickness) in IControl.h) instead of IVKnobControl's own defaults
+  // (2.5px thick, spanning the full 0.1-1.0 radius). Color matches for free -- DrawPointer and
+  // DrawPressableEllipse both read GetColor(kFR) off the same IVStyle instance -- but thickness is
+  // bumped a bit past frameThickness itself (that value reads fine for the thin frame ring, but
+  // felt too thin once isolated as a short notch) and the notch is shortened to a 0.2-0.8 radius
+  // band so it reads as a stubby indicator tick rather than a full spoke through the center.
+  void StyleKnobPointer(IVKnobControl& knob, const IVStyle& style)
+  {
+    knob.SetPointerThickness(style.frameThickness * 1.2f);
+    knob.SetInnerPointerFrac(0.3f);
+    knob.SetOuterPointerFrac(0.8f);
   }
 
   float ClusterHeight(const ParamClusterDesc& c)
@@ -770,21 +839,32 @@ Sparkles::Sparkles(const InstanceInfo& info)
       EUITab tab = EUITab::General;
     };
 
-    // One label rect per group, top-left anchored at the group's own static (x, y) -- see the
-    // attach loop further down, which draws each group's name there with no bordered box around it.
+    // One label rect per group, anchored at the group's own static (x, y) but shifted right by the
+    // dot marker's width (kGroupMarkerR/kGroupMarkerTextGap) -- see the attach loop further down,
+    // which draws each group's name there with no bordered box around it, plus groupMarkerBounds
+    // below for the dot-and-line marker that now sits in the space the shift opens up.
     std::vector<IRECT> groupLabelBounds(kNumParamGroups);
+    std::vector<IRECT> groupMarkerBounds(kNumParamGroups);
 
     std::vector<FlatCtrl> flatControls;
     flatControls.reserve(96);
     for (int g = 0; g < kNumParamGroups; g++) {
       const ParamGroupDesc& group = kParamGroups[g];
       const float groupOriginX = paramsArea.L + group.x, groupOriginY = paramsArea.T + group.y;
-      groupLabelBounds[g] = IRECT(groupOriginX, groupOriginY, groupOriginX + 260.f, groupOriginY + kGroupLabelH);
+      const float labelL = groupOriginX + kGroupMarkerR * 2.f + kGroupMarkerTextGap;
+      groupLabelBounds[g] = IRECT(labelL, groupOriginY, labelL + 260.f, groupOriginY + kGroupLabelH);
+
+      // Lowest edge of any of this group's clusters -- how far down the marker's line runs (see
+      // groupMarkerBounds below). Starts at the label's own bottom so a group with no clusters
+      // (never happens today, but keeps this from producing a negative-height line) still draws
+      // just the dot.
+      float groupContentBottom = groupOriginY + kGroupLabelH;
 
       for (int c = 0; c < group.numClusters; c++) {
         const ParamClusterDesc& cluster = group.clusters[c];
         const float cx = groupOriginX + cluster.x, cy = groupOriginY + cluster.y;
         const float clusterH = ClusterHeight(cluster);
+        groupContentBottom = std::max(groupContentBottom, cy + clusterH);
 
         const IRECT clusterRect(cx, cy, cx + kCellW, cy + clusterH);
         // See kOptionButtonWScale/kOptionButtonHScale's own comment above for why Toggle/Dropdown
@@ -802,16 +882,29 @@ Sparkles::Sparkles(const InstanceInfo& info)
         // that constant's comment for why (Dropdown-kind bases keep the full kCellW).
         const bool clusterIsKnobLike = cluster.kind == EParamCtrlKind::Knob || cluster.kind == EParamCtrlKind::TimeKnob;
         float modX = cx + (clusterIsKnobLike ? kModifierOffsetKnobW : kCellW) + kClusterGap;
+        // Vertical anchor for the Rm/Sm chip: a knob-like base's widget already sits centred in
+        // clusterRect (symmetric label-above/value-below carve), but an option-button base
+        // (Dropdown/Toggle) only carves its label off the top -- see kOptionButtonLabelH's comment
+        // -- so its real widget/pill centre sits lower than clusterRect.MH().
+        const float modCY = isOptionButton ? clusterRect.GetReducedFromTop(kOptionButtonLabelH).MH() : clusterRect.MH();
         if (cluster.rmParamIdx >= 0) {
-          const IRECT modRect(modX, clusterRect.MH() - kChipH * 0.5f, modX + kChipWRay, clusterRect.MH() + kChipH * 0.5f);
+          const IRECT modRect(modX, modCY - kChipH * 0.5f, modX + kChipWRay, modCY + kChipH * 0.5f);
           flatControls.push_back(FlatCtrl{ modRect.GetPadded(-1.f), cluster.rmParamIdx, "p/ray", EParamCtrlKind::Knob, -1, true, group.tab });
           modX += kChipWRay + kClusterGap;
         }
         if (cluster.smParamIdx >= 0) {
-          const IRECT modRect(modX, clusterRect.MH() - kChipH * 0.5f, modX + kChipWSparkle, clusterRect.MH() + kChipH * 0.5f);
+          const IRECT modRect(modX, modCY - kChipH * 0.5f, modX + kChipWSparkle, modCY + kChipH * 0.5f);
           flatControls.push_back(FlatCtrl{ modRect.GetPadded(-1.f), cluster.smParamIdx, "p/sparkle", EParamCtrlKind::Knob, -1, true, group.tab });
         }
       }
+
+      // Dot centred on markerCX (fixed by the layout radius kGroupMarkerR, not the smaller drawn
+      // radius -- see that constant's comment), nudged up off the label's geometric middle by
+      // kGroupMarkerYShift. The line itself (drawn inside GroupMarkerControl, starting a few px
+      // below the dot) runs from there down to groupContentBottom.
+      const float markerCX = groupOriginX + kGroupMarkerR;
+      const float markerCY = groupLabelBounds[g].MH() + kGroupMarkerYShift;
+      groupMarkerBounds[g] = IRECT(markerCX - kGroupMarkerDotR, markerCY - kGroupMarkerDotR, markerCX + kGroupMarkerDotR, groupContentBottom);
     }
 
     if (pGraphics->NControls()) {
@@ -862,8 +955,10 @@ Sparkles::Sparkles(const InstanceInfo& info)
         else
           setTabbed(kCtrlTagFirstParamControl + i, flatControls[i].rect, flatControls[i].tab);
       }
-      for (int g = 0; g < kNumParamGroups; g++)
+      for (int g = 0; g < kNumParamGroups; g++) {
         setTabbed(kCtrlTagFirstParamControl + (int) flatControls.size() + g, groupLabelBounds[g], kParamGroups[g].tab);
+        setTabbed(kCtrlTagFirstParamControl + (int) flatControls.size() + kNumParamGroups + g, groupMarkerBounds[g], kParamGroups[g].tab);
+      }
       return;
     }
 
@@ -1022,13 +1117,21 @@ Sparkles::Sparkles(const InstanceInfo& info)
           if (ctrl.isModifier)
             pGraphics->AttachControl(new ModifierValueControl(ctrl.rect, ctrl.paramIdx, ctrl.label), tag);
           else
-            pGraphics->AttachControl(new IVKnobControl(ctrl.rect, ctrl.paramIdx, ctrl.label, style), tag);
+          {
+            auto* knob = new IVKnobControl(ctrl.rect, ctrl.paramIdx, ctrl.label, style);
+            StyleKnobPointer(*knob, style);
+            pGraphics->AttachControl(knob, tag);
+          }
           break;
         case EParamCtrlKind::TimeKnob:
+        {
           // Same `style` every plain Knob-kind cluster on this tab uses -- see TimeMagnitudeControl.h's
           // header comment for why this now renders identically to a regular IVKnobControl.
-          pGraphics->AttachControl(new TimeMagnitudeControl(ctrl.rect, ctrl.paramIdx, ctrl.unitParamIdx, ctrl.label, style), tag);
+          auto* knob = new TimeMagnitudeControl(ctrl.rect, ctrl.paramIdx, ctrl.unitParamIdx, ctrl.label, style);
+          StyleKnobPointer(*knob, style);
+          pGraphics->AttachControl(knob, tag);
           break;
+        }
         case EParamCtrlKind::Toggle:
         case EParamCtrlKind::Dropdown:
         default:
@@ -1043,19 +1146,21 @@ Sparkles::Sparkles(const InstanceInfo& info)
           // style.valueText's own Fredoka-Regular in kLinesInterior (still fine for a knob's
           // value caption sitting in its own thin band below the widget, just too quiet in a
           // pill where the value is the primary text), same as the Root/Scale/Mode quick-fill
-          // buttons. Sized back down to 10px here rather than kActionButtonStyle's 12px, to
-          // match these pills' own smaller (20%-shrunk, see the FlatCtrl loop above) size --
-          // kActionButtonStyle itself stays untouched so Root/Scale/Mode/Shut Up don't shrink.
+          // buttons. Sized to 12px here to match kCompactStyle's own (grown) value text size --
+          // kActionButtonStyle itself stays untouched so Root/Scale/Mode/Shut Up don't change.
           // The caption line above the pill (ctrl.label, e.g. "Wrap") is untouched -- still
           // style's own labelText -- only the value inside the pill changes.
           pGraphics->AttachControl(new IVSwitchControl(ctrl.rect, ctrl.paramIdx, ctrl.label,
-            style.WithValueText(kActionButtonStyle.valueText.WithSize(10.f))), tag);
+            style.WithValueText(kActionButtonStyle.valueText.WithSize(12.f))), tag);
           break;
       }
     }
-    // Just the group's name, no bordered box around its knobs -- see kGroupLabelText's comment.
-    for (int g = 0; g < kNumParamGroups; g++)
+    // Just the group's name plus a small dot-and-line marker to its left, no bordered box around
+    // its knobs -- see kGroupLabelText's comment and ui/GroupMarkerControl.h.
+    for (int g = 0; g < kNumParamGroups; g++) {
       pGraphics->AttachControl(new ITextControl(groupLabelBounds[g], kParamGroups[g].name, kGroupLabelText), kCtrlTagFirstParamControl + (int) flatControls.size() + g);
+      pGraphics->AttachControl(new GroupMarkerControl(groupMarkerBounds[g]), kCtrlTagFirstParamControl + (int) flatControls.size() + kNumParamGroups + g);
+    }
 
     // Everything above attaches with whichever tab happened to be active at construction time as
     // its rect/Hide() truth -- re-enter through the resize branch once now (NControls() is nonzero
@@ -1095,14 +1200,47 @@ void Sparkles::ApplyPreset(int idx)
   }
 }
 
-// Seed (§7.6) is only meaningful when Panning = Random -- hides/shows it on the UI thread as
-// Panning changes, on top of (never instead of) mLayoutFunc's own tab-visibility Hide() (see
-// the flatControls loop above, which applies this same combined condition on attach/resize/
-// tab-switch -- needed here too since changing Panning alone doesn't re-run mLayoutFunc). Guarded
-// on mActiveTab so this can't pop Seed into view sitting at the Stereo group's coordinates while
-// some other tab is the one actually showing.
+// Handles two unrelated UI-resync jobs that both need to react right after a param changes:
+//
+// 1. Pre Delay/Duration/Ray Delay/Delay Unit toggles: OnParamChange (DSP side) rescales the
+//    sibling magnitude param via ConvertTimeMagnitudeUnit's own SetParameterValue call so it still
+//    represents the same real duration under the new unit -- but that SetParameterValue call only
+//    updates the IParam itself, not the already-attached TimeMagnitudeControl's cached display
+//    value/knob angle (same gap ApplyPreset's own resync loop above works around). Without this,
+//    the knob visually freezes at its pre-toggle position/text after a Beats/ms flip until some
+//    unrelated interaction forces a redraw. Fires here (not from ConvertTimeMagnitudeUnit itself)
+//    since this override is the documented place to touch UI state, and by the time
+//    OnParamChangeUI(*Unit, ...) runs, SendParameterValueFromUI has already driven the DSP-side
+//    OnParamChange -> ConvertTimeMagnitudeUnit call to completion, so the magnitude param's own
+//    value is already the rescaled one. Guarded on kUI for the same reason ConvertTimeMagnitudeUnit
+//    itself is (see that function's comment) -- OnParamReset re-announces every param as this same
+//    override too, and resyncing then is just wasted work since ConvertTimeMagnitudeUnit never fired.
+//
+// 2. Seed (§7.6) is only meaningful when Panning = Random -- hides/shows it on the UI thread as
+//    Panning changes, on top of (never instead of) mLayoutFunc's own tab-visibility Hide() (see
+//    the flatControls loop above, which applies this same combined condition on attach/resize/
+//    tab-switch -- needed here too since changing Panning alone doesn't re-run mLayoutFunc). Guarded
+//    on mActiveTab so this can't pop Seed into view sitting at the Stereo group's coordinates while
+//    some other tab is the one actually showing.
 void Sparkles::OnParamChangeUI(int paramIdx, EParamSource source)
 {
+  if (source == kUI) {
+    int magnitudeParamIdx = -1;
+    if (paramIdx == kParamPreDelayUnit) magnitudeParamIdx = kParamPreDelay;
+    else if (paramIdx == kParamDurationUnit) magnitudeParamIdx = kParamDuration;
+    else if (paramIdx == kParamRayDelayUnit) magnitudeParamIdx = kParamRayDelay;
+    else if (paramIdx == kParamDelayUnit) magnitudeParamIdx = kParamDelay;
+
+    if (magnitudeParamIdx >= 0) {
+      if (IGraphics* pGraphics = GetUI()) {
+        pGraphics->ForControlWithParam(magnitudeParamIdx, [](IControl* pControl) {
+          pControl->SetValueFromDelegate(pControl->GetParam()->GetNormalized());
+        });
+      }
+      return;
+    }
+  }
+
   if (paramIdx != kParamPanning)
     return;
 

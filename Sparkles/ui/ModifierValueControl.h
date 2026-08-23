@@ -23,6 +23,15 @@ using namespace igraphics;
 // Ray Rotation's Rm ("Keep"/"Invert") is the one enum-valued exception -- rather than a
 // continuous multiplier, GetParam()->Value() there is just 0 or 1, so it's shown as "x1"/"x-1"
 // (NDisplayTexts() == 2 is the tell) instead of a misleading "x0.00"/"x1.00".
+//
+// That same NDisplayTexts() == 2 tell also switches the *interaction* model, not just the display
+// text: a continuous multiplier's drag/scroll (100+px of drag or dozens of scroll notches to cross
+// the 0.5 rounding threshold, see IPlugParameter's kFlagStepped Constrain()) reads as completely
+// unresponsive for a param that only ever has two real states. Every other 2-option control in this
+// whole UI (Wrap, Panning, the *Unit toggles, even Ray Rotation's own base "L"/"R" -- all
+// IVSwitchControl/ISwitchControlBase) flips instantly on a single click instead, so a 2-option Rm
+// matches that here too: click (mouse down) or any scroll notch flips it outright, and drag is a
+// no-op rather than fighting the click that already happened on mouse-down.
 class ModifierValueControl : public IControl
 {
 public:
@@ -52,10 +61,19 @@ public:
   {
     mMouseDownY = y;
     mMouseDownNormalized = GetValue();
+
+    if (IsToggleParam()) {
+      SetValue(GetValue() < 0.5 ? 1.0 : 0.0);
+      SetDirty(true);
+    }
   }
 
   void OnMouseDrag(float x, float y, float dX, float dY, const IMouseMod& mod) override
   {
+    // Already flipped outright on the mouse-down that started this drag -- see class comment.
+    if (IsToggleParam())
+      return;
+
     const float pixelsDragged = mMouseDownY - y;
     const double newNormalized = std::clamp(mMouseDownNormalized + pixelsDragged / kDragRangePx, 0.0, 1.0);
     SetValue(newNormalized);
@@ -64,6 +82,12 @@ public:
 
   void OnMouseWheel(float x, float y, const IMouseMod& mod, float d) override
   {
+    if (IsToggleParam()) {
+      SetValue(GetValue() < 0.5 ? 1.0 : 0.0);
+      SetDirty(true);
+      return;
+    }
+
     const double newNormalized = std::clamp(GetValue() + (d > 0.f ? kWheelStep : -kWheelStep), 0.0, 1.0);
     SetValue(newNormalized);
     SetDirty(true);
@@ -75,6 +99,8 @@ public:
   }
 
 private:
+  bool IsToggleParam() const { return GetParam()->NDisplayTexts() == 2; }
+
   WDL_String mSuffix;
   float mMouseDownY = 0.f;
   double mMouseDownNormalized = 0.0;
