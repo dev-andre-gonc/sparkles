@@ -970,9 +970,6 @@ Sparkles::Sparkles(const InstanceInfo& info)
     // (config.h) so this corner handle is the only way to resize at all -- no host-driven resize
     // path exists here to fight with it.
     pGraphics->AttachCornerResizer(EUIResizerMode::Scale, true);
-    pGraphics->LoadFont(sparkle_palette::kFontRoboto, ROBOTO_FN);
-    pGraphics->LoadFont(sparkle_palette::kFontBungee, BUNGEE_FN);
-    pGraphics->LoadFont(sparkle_palette::kFontRighteous, RIGHTEOUS_FN);
     pGraphics->LoadFont(sparkle_palette::kFontFredokaLight, FREDOKA_LIGHT_FN);
     pGraphics->LoadFont(sparkle_palette::kFontFredokaRegular, FREDOKA_REGULAR_FN);
     pGraphics->LoadFont(sparkle_palette::kFontFredokaMedium, FREDOKA_MEDIUM_FN);

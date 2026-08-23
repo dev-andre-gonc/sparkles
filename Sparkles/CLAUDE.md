@@ -118,6 +118,6 @@ leaving it looking stuck when you switched tabs right after clicking it.
 - `ui/ModifierValueControl.h` — the condensed "x1.20 p/ray" Rm/Sm text control (no knob graphic, drag/scroll to change value), modeled on `ui/TimeMagnitudeControl.h`'s plain-`IControl` style.
 - `config.h` — plugin metadata, channel I/O, size constraints, format-specific IDs (`PLUG_UNIQUE_ID`, `PLUG_MFR_ID`, `AAX_TYPE_IDS`, etc.).
 - `projects/` — per-format IDE projects (Xcode, VS, WAM makefiles).
-- `resources/` — Info.plists, icons, fonts, images. Fonts referenced via `*_FN` macros in `config.h` (e.g. `ROBOTO_FN`).
+- `resources/` — Info.plists, icons, fonts, images. Fonts referenced via `*_FN` macros in `config.h` (e.g. `FREDOKA_REGULAR_FN`).
 - `CMakeLists.txt` — alternative CMake build (see `build-cmake` skill).
 - `build-mac/`, `build-win/`, `installer/`, `manual/`, `scripts/` — build, packaging, and docs tooling.

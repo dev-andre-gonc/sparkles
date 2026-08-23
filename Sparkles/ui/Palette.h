@@ -93,12 +93,9 @@ namespace sparkle_palette
   // Font family names, as passed to both IGraphics::LoadFont's first arg and IText's fontID --
   // must match the *_FN file macros in config.h 1:1 (LoadFont's name -> file mapping happens once
   // in mLayoutFunc's initial-attach branch).
-  constexpr const char* kFontBungee = "Bungee-Regular";
-  constexpr const char* kFontRighteous = "Righteous-Regular";
   constexpr const char* kFontFredokaLight = "Fredoka-Light";
   constexpr const char* kFontFredokaRegular = "Fredoka-Regular";
   constexpr const char* kFontFredokaMedium = "Fredoka-Medium";
   constexpr const char* kFontFredokaSemiBold = "Fredoka-SemiBold";
   constexpr const char* kFontFredokaBold = "Fredoka-Bold";
-  constexpr const char* kFontRoboto = "Roboto-Regular";
 }

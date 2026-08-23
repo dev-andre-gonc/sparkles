@@ -67,10 +67,6 @@
 #define APP_COPY_AUV3 0
 #define APP_SIGNAL_VECTOR_SIZE 64
 
-#define ROBOTO_FN "Roboto-Regular.ttf"
-#define BUNGEE_FN "Bungee-Regular.ttf"
-#define RIGHTEOUS_FN "Righteous-Regular.ttf"
-#define MONOTON_FN "Monoton-Regular.ttf"
 #define FREDOKA_LIGHT_FN "Fredoka-Light.ttf"
 #define FREDOKA_REGULAR_FN "Fredoka-Regular.ttf"
 #define FREDOKA_MEDIUM_FN "Fredoka-Medium.ttf"

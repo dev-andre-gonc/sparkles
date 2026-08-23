@@ -29,16 +29,17 @@ iplug_add_plugin(${PROJECT_NAME}
     params/ParamList.h
     params/ParamRanges.h
     params/ParamSnapshot.h
+    ui/BackgroundImageControl.h
     ui/EnvelopeMeterControl.h
+    ui/GroupMarkerControl.h
+    ui/ModifierValueControl.h
     ui/NoteBarsControl.h
     ui/NoteMatrixControl.h
+    ui/Palette.h
+    ui/TimeMagnitudeControl.h
     ui/TriggerLightControl.h
     ui/ValueDisplayControl.h
   RESOURCES
-    resources/fonts/Roboto-Regular.ttf
-    resources/fonts/Bungee-Regular.ttf
-    resources/fonts/Righteous-Regular.ttf
-    resources/fonts/Monoton-Regular.ttf
     resources/fonts/Fredoka-Light.ttf
     resources/fonts/Fredoka-Regular.ttf
     resources/fonts/Fredoka-Medium.ttf

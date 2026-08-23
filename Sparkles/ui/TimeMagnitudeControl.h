@@ -42,45 +42,60 @@ public:
     double beats;
   };
 
-  // 10 divisions (128th .. 4x whole note) x {triplet, straight, dotted}, sorted ascending,
-  // dropping the one variant that would exceed the 16-beat ceiling (4-whole-dotted = 24 beats),
-  // plus a leading "None" entry so Pre Delay's default of exactly 0 is reachable by scrolling/
+  // 11 divisions (128th note .. 4 whole notes/"bars") x {triplet, straight, dotted}, GLOBALLY
+  // sorted ascending by actual duration -- not grouped by division -- since a bigger division's
+  // triplet can be a shorter duration than a smaller division's dotted value (e.g. "4T" sits
+  // between "2" and "3" below, not next to "4"), so a per-division grouping wouldn't actually be
+  // ascending. Triplet = 2/3 x the straight value (3 of them fill the time 2 normally would);
+  // dotted = 1.5x (adds half its own value again); both applied uniformly to every division.
+  //
+  // Two combinations are mathematically redundant with others already in the list and are
+  // omitted entirely rather than left in as same-valued entries: a tripleted 3-bar
+  // (2/3 x 12 = 8 beats) exactly equals the straight 2-bar value, and a dotted 2-bar
+  // (1.5 x 8 = 12 beats) exactly equals the straight 3-bar value. Both collisions are exact, not
+  // float-rounding noise, and only happen in the whole-note-and-up tier, where bars are counted
+  // linearly (1, 2, 3, 4) instead of the doubling pattern every division below the whole note
+  // follows -- doubling never lands a triplet/dotted value back on another named division, linear
+  // counting does. A same-valued entry left in would be unreachable by name anyway:
+  // NearestIndex()'s tie-break always favors whichever of a tied pair comes first, so the later
+  // one could be dragged/scrolled to (its beats value stored correctly) but could never actually
+  // show its own name afterward -- the display would snap to the earlier duplicate's name instead.
+  //
+  // Plus a leading "None" entry so Pre Delay's default of exactly 0 is reachable by scrolling/
   // dragging down.
-  static constexpr std::array<NoteValue, 34> kNoteValues = { {
+  static constexpr std::array<NoteValue, 32> kNoteValues = { {
     { "None", 0.0 },
+    { "1/128T", 2.0 / 3.0 * 1.0 / 32.0 },
     { "1/128", 1.0 / 32.0 },
-    { "1/128T", 1.0 / 32.0 * 1.0 / 3.0 },
-    { "1/128.", 1.5 / 32.0 },
+    { "1/64T", 2.0 / 3.0 * 1.0 / 16.0 },
+    { "1/128.", 1.5 * 1.0 / 32.0 },
     { "1/64", 1.0 / 16.0 },
-    { "1/64T", 1.0 / 3.0 * 1.0 / 16.0 },
+    { "1/32T", 2.0 / 3.0 * 1.0 / 8.0 },
     { "1/64.", 1.5 * 1.0 / 16.0 },
     { "1/32", 1.0 / 8.0 },
-    { "1/32T", 1.0 / 3.0 * 1.0 / 8.0 },
+    { "1/16T", 2.0 / 3.0 * 1.0 / 4.0 },
     { "1/32.", 1.5 * 1.0 / 8.0 },
     { "1/16", 1.0 / 4.0 },
-    { "1/16T", 1.0 / 3.0 * 1.0 / 4.0 },
+    { "1/8T", 2.0 / 3.0 * 1.0 / 2.0 },
     { "1/16.", 1.5 * 1.0 / 4.0 },
     { "1/8", 1.0 / 2.0 },
-    { "1/8T", 1.0 / 3.0 * 1.0 / 2.0 },
+    { "1/4T", 2.0 / 3.0 * 1.0 },
     { "1/8.", 1.5 * 1.0 / 2.0 },
     { "1/4", 1.0 },
-    { "1/4T", 1.0 / 3.0 * 1.0 },
+    { "1/2T", 2.0 / 3.0 * 2.0 },
     { "1/4.", 1.5 * 1.0 },
-    { "1/2", 2.0},
-    { "1/2T", 1.0 / 3.0 * 2.0},
-    { "1/2.", 1.5 * 2.0},
+    { "1/2", 2.0 },
+    { "1T", 2.0 / 3.0 * 4.0 },
+    { "1/2.", 1.5 * 2.0 },
     { "1", 4.0 },
-    { "1T", 1.0 / 3.0 * 4.0 },
+    { "2T", 2.0 / 3.0 * 8.0 },
     { "1.", 1.5 * 4.0 },
     { "2", 8.0 },
-    { "2T", 1.0 / 3.0 * 8.0 },
-    { "2.", 1.5 * 8.0 },
-    { "3", 16.0 },
-    { "3T", 1.0 / 3.0 * 16.0 },
-    { "3.", 1.5 * 16.0 },
-    { "4", 32.0 },
-    { "4T", 1.0 / 3.0 * 32.0 },
-    { "4.", 1.5 * 32.0 },
+    { "4T", 2.0 / 3.0 * 16.0 },
+    { "3", 12.0 },
+    { "4", 16.0 },
+    { "3.", 1.5 * 12.0 },
+    { "4.", 1.5 * 16.0 },
   } };
 
   // Pixels of drag (or one wheel notch) per step through kNoteValues in Beats mode.
