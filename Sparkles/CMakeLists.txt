@@ -33,7 +33,6 @@ iplug_add_plugin(${PROJECT_NAME}
     ui/BackgroundImageControl.h
     ui/EnvelopeMeterControl.h
     ui/GroupMarkerControl.h
-    ui/GuideTextControl.h
     ui/ModifierValueControl.h
     ui/NoteBarsControl.h
     ui/NoteMatrixControl.h
@@ -49,6 +48,7 @@ iplug_add_plugin(${PROJECT_NAME}
     resources/fonts/Fredoka-Bold.ttf
     resources/img/background.png
     resources/img/quick_guide.png
+    resources/img/led_shine.png
   FORMATS
     MINIMAL_PLUGINS APP WASM
 )

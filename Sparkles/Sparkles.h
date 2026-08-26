@@ -18,7 +18,6 @@
 #include "ui/BackgroundImageControl.h"
 #include "ui/EnvelopeMeterControl.h"
 #include "ui/GroupMarkerControl.h"
-#include "ui/GuideTextControl.h"
 #include "ui/ModifierValueControl.h"
 #include "ui/NoteBarsControl.h"
 #include "ui/NoteMatrixControl.h"
@@ -55,32 +54,8 @@ enum ECtrlTags
   kCtrlTagKeyRoot,         // §5.1 key/scale quick-fill, hand-placed beside kCtrlTagNoteMatrix
   kCtrlTagKeyScale,
   kCtrlTagKeyMode,
-  // Quick Guide tab's hand-placed content -- see mLayoutFunc. Title, then Intro/Bullets/Outro/
-  // BodyBottom (all ui/GuideTextControl.h, word-wrapped with inline "**bold**" support) bracketing
-  // a placeholder box reserved for a future diagram, all in a left text column. Each prose block is
-  // its own control (rather than one flowing block) so mLayoutFunc can measure each one's real
-  // height and stack the next block right under it, and so Bullets' bounds alone can be inset from
-  // the left for its indent -- see GuideTextControl's own header comment for why that inset (not
-  // leading spaces in the string) is what actually produces the indent.
-  // All #if 0'd out in mLayoutFunc in favor of kCtrlTagQuickGuideImage below (a single static
-  // resources/img/quick_guide.png overlay) -- kept, tags included, until that image is confirmed to
-  // look right, at which point these go too.
-  kCtrlTagQuickGuideTitle,
-  kCtrlTagQuickGuideIntro,
-  kCtrlTagQuickGuideBullets,
-  kCtrlTagQuickGuideOutro,
-  kCtrlTagQuickGuideDiagram,
-  kCtrlTagQuickGuideBodyBottom,
-
-  // The tab's right strip, one short tip per always-visible right-column indicator (see
-  // rightCursor in mLayoutFunc), in the same top-to-bottom order those indicators actually appear.
-  kCtrlTagQuickGuideTipShutUp,
-  kCtrlTagQuickGuideTipSprinkleCount,
-  kCtrlTagQuickGuideTipNoteDisplay,
-  kCtrlTagQuickGuideTipEnvelopeMeter,
-  kCtrlTagQuickGuideTipTriggerLight,
-
-  // Quick Guide tab's actual current content -- see mLayoutFunc's guideImageBounds.
+  // Quick Guide tab's single static overlay (resources/img/quick_guide.png) -- see mLayoutFunc's
+  // guideImageBounds.
   kCtrlTagQuickGuideImage,
 
   // Bottom-right footnote on General/PitchTiming/Synth, explaining the `*`-suffixed labels among

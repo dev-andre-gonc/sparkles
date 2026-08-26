@@ -75,3 +75,4 @@
 
 #define BACKGROUND_FN "background.png"
 #define QUICK_GUIDE_FN "quick_guide.png"
+#define LED_SHINE_FN "led_shine.png"

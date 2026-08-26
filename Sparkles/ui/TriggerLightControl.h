@@ -2,33 +2,35 @@
 
 #include "IControl.h"
 #include "ISender.h"
-#include "Palette.h"
 
 using namespace iplug;
 using namespace igraphics;
 
-// Small circular light that flashes on, then fades back off over kFlashDurationMs, each time it
-// receives a message via ISender<1> -- fed from ProcessBlock at the moment the envelope crosses
-// the trigger threshold. Uses IControl's built-in animation timer (see SetAnimation) rather than
-// its own clock, since IGraphics already drives that once per frame.
+// led_shine.png (a glow baked around the same bird icon as the badge circle in background.png,
+// see CLAUDE.md) that suddenly appears at full opacity, then fades back off over
+// kFlashDurationMs, each time it receives a message via ISender<1> -- fed from ProcessBlock at
+// the moment the envelope crosses the trigger threshold. Uses IControl's built-in animation timer
+// (see SetAnimation) rather than its own clock, since IGraphics already drives that once per
+// frame. Was a plain vector-drawn dot (FillEllipse/DrawEllipse) before the badge art existed.
 class TriggerLightControl : public IControl
 {
 public:
   static constexpr int kFlashDurationMs = 150;
 
-  TriggerLightControl(const IRECT& bounds, const IColor& onColor = sparkle_palette::kCustomRed, const IColor& offColor = sparkle_palette::kLinesInterior.WithOpacity(0.3f))
+  TriggerLightControl(const IRECT& bounds, const IBitmap& bitmap)
   : IControl(bounds)
-  , mOnColor(onColor)
-  , mOffColor(offColor)
+  , mBitmap(bitmap)
   {
     mIgnoreMouse = true;
   }
 
   void Draw(IGraphics& g) override
   {
-    const IColor color = IColor::LinearInterpolateBetween(mOffColor, mOnColor, mBrightness);
-    g.FillEllipse(color, mRECT);
-    g.DrawEllipse(sparkle_palette::kLinesOuter, mRECT);
+    if (mBrightness <= 0.f)
+      return;
+
+    const IBlend blend(EBlend::Default, mBrightness);
+    g.DrawFittedBitmap(mBitmap, mRECT, &blend);
   }
 
   void OnMsgFromDelegate(int msgTag, int dataSize, const void* pData) override
@@ -53,6 +55,5 @@ public:
 
 private:
   float mBrightness = 0.f;
-  IColor mOnColor;
-  IColor mOffColor;
+  IBitmap mBitmap;
 };

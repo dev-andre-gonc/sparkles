@@ -501,60 +501,11 @@ namespace
   // a group's static x/y in kParamGroups matches where its heading visibly renders.
   const IText kGroupLabelText = kCompactStyle.labelText.WithSize(13.f).WithFGColor(sparkle_palette::kLinesOuter).WithFont(sparkle_palette::kFontFredokaSemiBold).WithAlign(EAlign::Near);
 
-  // Quick Guide tab's body copy -- same family/color/alignment as kGroupLabelText (so it reads as
-  // belonging to the same UI) but Regular weight instead of SemiBold and a size step down, so it's
-  // clearly secondary to a heading rather than competing with one. Paired with GuideTextControl
-  // (word-wraps to its own bounds' width, honors '\n' as a hard line break, and bolds "**word**"
-  // spans using kGuideBoldFontID -- see that file) rather than plain ITextControl, since this tab's
-  // text is long-form prose that also needs to call out specific tab/parameter names inline.
-  const IText kGuideBodyText = kGroupLabelText.WithSize(10.f).WithFont(sparkle_palette::kFontFredokaRegular);
-  // Right-strip tips are short labels, not prose -- a step smaller than the main body copy so five
-  // of them fit the narrow strip, and right-aligned (via GuideTextControl's own `align` ctor arg,
-  // not this IText's WithAlign -- see that class) to sit flush against the strip's own right edge,
-  // closest to the indicators the strip is describing.
-  const IText kGuideTipText = kGuideBodyText.WithSize(9.f);
-  // SemiBold (kGroupLabelText's own weight), not Bold -- Bold read as too heavy against this small
-  // 12px body copy when tried inline (a whole pill/heading can carry Bold, a couple of words mid-
-  // sentence can't without looking shouty).
-  constexpr const char* kGuideBoldFontID = sparkle_palette::kFontFredokaSemiBold;
-
-  // Guide prose, factored out as named constants (rather than inlined at each AttachControl call
-  // below) so mLayoutFunc's layout section can measure each block's real height via
-  // GuideTextControl::MeasureHeight and stack the next block right after it -- the exact same
-  // string has to feed both the measurement and the AttachControl call, or the two would drift.
-  constexpr const char* kGuideIntroText =
-    "Sparkles is a triggered MIDI delay/arpeggiator: it reacts to what you feed it (audio and/or "
-    "MIDI) with bursts of notes (audio and/or MIDI), fully customizable.\n\n"
-    "To get started, tune your **Detection** settings, shape your IN/OUT notes in the **Note "
-    "Matrix**, and try some presets. A couple tips:";
-  constexpr const char* kGuideBulletsText =
-    "\xe2\x80\xa2 **Trigger On** fires on note start or end. With **Detect Type** \"Audio\", start/end "
-    "follow the envelope crossing above/below **Threshold**; with \"MIDI\", only notes at or above "
-    "**Min Velocity** count. **Trigger Cooloff** sets the minimum gap between triggers.\n"
-    "\xe2\x80\xa2 The **Note Matrix** maps each note you play (column) to the notes played back "
-    "(rows). Click an orange cell on top to preview a note, prefill with the buttons on the right, "
-    "then adjust by hand. Click a row or column header to toggle it entirely -- only **Scale Mode** "
-    "is updated by presets.";
-  constexpr const char* kGuideOutroText = "This diagram may help with any manual changes needed:";
-  constexpr const char* kGuideBodyBottomText =
-    "Most parameters have **Ray** and **Sparkle** modifiers beside them -- use these to vary the "
-    "sound from ray to ray, and from sparkle to sparkle.";
-
-  // Right-strip tips (see kGuideColFrac's own comment) explaining the always-visible right-column
-  // indicators (see rightCursor above), one tip per indicator in the same top-to-bottom order they
-  // actually appear in: Shut Up, sprinkle count, note/confidence readout, envelope meter, trigger
-  // light.
-  constexpr const char* kGuideTipShutUp = "Emergency shut up button";
-  constexpr const char* kGuideTipSprinkleCount = "Number of sprinkles currently active";
-  constexpr const char* kGuideTipNoteDisplay = "Currently detected note and confidence level";
-  constexpr const char* kGuideTipEnvelopeMeter = "Visualizes current envelope state and threshold level";
-  constexpr const char* kGuideTipTriggerLight = "Flashes on trigger (even if no sprinkle fired)";
-
   // Bottom-right footnote on General/PitchTiming/Synth explaining the `*`-suffixed labels among
-  // those tabs' kParamGroups clusters (see kCtrlTagFootnote in Sparkles.h) -- same family/weight as
-  // kGuideBodyText, smaller still and right-aligned (EAlign::Far) since it's a footnote, not body
-  // copy or a heading.
-  const IText kFootnoteText = kGuideBodyText.WithSize(10.f).WithAlign(EAlign::Far);
+  // those tabs' kParamGroups clusters (see kCtrlTagFootnote in Sparkles.h) -- same family as
+  // kGroupLabelText, Regular weight and a size step down since it's a footnote, not a heading, and
+  // right-aligned (EAlign::Far) to sit flush against the tab content area's own right edge.
+  const IText kFootnoteText = kGroupLabelText.WithSize(10.f).WithFont(sparkle_palette::kFontFredokaRegular).WithAlign(EAlign::Far);
 
   // Recolors kCompactStyle per-tab so each tab's knobs/switches pick up that tab's own accent
   // color (sparkle_palette::kTabColors), the same way its selector pill is colored -- "colorful
@@ -879,9 +830,26 @@ Sparkles::Sparkles(const InstanceInfo& info)
     rightCursor = rightCursor.GetReducedFromTop(24.f + 6.f);
     const IRECT noteBounds = rightCursor.GetFromTop(32.f);
     rightCursor = rightCursor.GetReducedFromTop(32.f + 6.f);
-    const IRECT triggerLightBounds = rightCursor.GetFromBottom(24.f).GetCentredInside(15.f);
-    rightCursor = rightCursor.GetReducedFromBottom(24.f + 6.f);
-    const IRECT meterBounds = rightCursor; // remaining flexible space
+    // led_shine.png (see ui/TriggerLightControl.h) sits exactly over the bird badge baked into
+    // background.png's bottom-right corner, so it's placed by that art's own measured position
+    // rather than centred in a block of this stack like the items above: top-left corner
+    // (1368,703) and size 113x113, both at the art's native 2x scale -- x0.5'd down to logical
+    // bounds coordinates, same convention as kLeftColFrac etc. above.
+    constexpr float kTriggerLightArtScale = 0.5f; // background.png / led_shine.png are 2x logical bounds
+    constexpr float kTriggerLightLeft2x = 1368.f;
+    constexpr float kTriggerLightTop2x = 703.f;
+    constexpr float kTriggerLightSize2x = 113.f;
+    const IRECT triggerLightBounds(bounds.L + kTriggerLightLeft2x * kTriggerLightArtScale,
+                                    bounds.T + kTriggerLightTop2x * kTriggerLightArtScale,
+                                    bounds.L + (kTriggerLightLeft2x + kTriggerLightSize2x) * kTriggerLightArtScale,
+                                    bounds.T + (kTriggerLightTop2x + kTriggerLightSize2x) * kTriggerLightArtScale);
+    // Envelope meter still takes whatever's left above the trigger light (now the badge art's own
+    // top edge, rather than a fixed 24+6 block) -- the badge sits higher up and the art is bigger
+    // than the old vector-drawn dot, so this needs recomputing from it directly. No gap needed
+    // here (unlike the fixed-height items above): led_shine.png's opaque icon is a small fraction
+    // of its bounds, most of which is just soft glow falloff, so the meter can run flush against
+    // triggerLightBounds.T without looking cramped.
+    const IRECT meterBounds(rightCursor.L, rightCursor.T, rightCursor.R, triggerLightBounds.T);
 
     // Note Matrix tab: §5.1 Key/Scale quick-fill trio, stacked vertically down the tab's left edge
     // (small, out of the way) so the §5 note-eligibility matrix (12x12 grid + column/row toggles,
@@ -905,69 +873,6 @@ Sparkles::Sparkles(const InstanceInfo& info)
     const float noteMatrixSquare = std::min({noteMatrixArea.W(), noteMatrixArea.H() - NoteMatrixControl::kTriggerRowSize, kNoteMatrixMaxSquare});
     const IRECT noteMatrixBounds =
       noteMatrixArea.GetCentredInside(noteMatrixSquare, noteMatrixSquare + NoteMatrixControl::kTriggerRowSize);
-
-#if 0 // superseded by the quick_guide.png overlay below -- kept until that's confirmed to look right
-    // Quick Guide tab: a title followed by Intro/Bullets/Outro prose (kGuideIntroText etc., see
-    // GuideTextControl) bracketing a placeholder box reserved for a future diagram, all confined to
-    // a left text column (kGuideColFrac); the remaining right strip holds one short tip per
-    // always-visible right-column indicator (kGuideTipShutUp etc.). Each prose block/tip is
-    // measured via GuideTextControl::MeasureHeight and stacked directly under the previous one
-    // (kGuideGap apart, cursor-style like rightCursor above) rather than given a fixed-fraction
-    // box -- guessed fractions left dead space whenever a block's actual text fell short of its
-    // box, which pushed the diagram down into that unused room. The diagram gets whatever's left
-    // once BodyBottom (measured too) claims its own actual height from the bottom, so tightening
-    // the prose above grows the diagram directly instead of leaving a gap. Bullets alone is inset
-    // from the left -- see its ECtrlTags comment for why that (not leading spaces in the string) is
-    // what actually indents it.
-    constexpr float kGuideColFrac = 0.8f;
-    constexpr float kGuideTitleH = 20.f;
-    constexpr float kGuideGap = 4.f;
-    constexpr float kGuideBulletsIndent = 12.f;
-    constexpr float kGuideRightGap = 10.f;
-    const IRECT guideColumn = tabContentArea.GetFromLeft(tabContentArea.W() * kGuideColFrac);
-    IRECT guideCursor = guideColumn;
-    const IRECT guideTitleBounds = guideCursor.GetFromTop(kGuideTitleH);
-    guideCursor = guideCursor.GetReducedFromTop(kGuideTitleH + kGuideGap);
-
-    const float guideIntroH = GuideTextControl::MeasureHeight(*pGraphics, kGuideIntroText, kGuideBodyText, kGuideBoldFontID, guideCursor.W());
-    const IRECT guideIntroBounds = guideCursor.GetFromTop(guideIntroH);
-    guideCursor = guideCursor.GetReducedFromTop(guideIntroH + kGuideGap);
-
-    const float guideBulletsW = guideCursor.W() - kGuideBulletsIndent;
-    const float guideBulletsH = GuideTextControl::MeasureHeight(*pGraphics, kGuideBulletsText, kGuideBodyText, kGuideBoldFontID, guideBulletsW);
-    const IRECT guideBulletsBounds = guideCursor.GetFromTop(guideBulletsH).GetReducedFromLeft(kGuideBulletsIndent);
-    guideCursor = guideCursor.GetReducedFromTop(guideBulletsH + kGuideGap);
-
-    const float guideOutroH = GuideTextControl::MeasureHeight(*pGraphics, kGuideOutroText, kGuideBodyText, kGuideBoldFontID, guideCursor.W());
-    const IRECT guideOutroBounds = guideCursor.GetFromTop(guideOutroH);
-    guideCursor = guideCursor.GetReducedFromTop(guideOutroH + kGuideGap);
-
-    const float guideBodyBottomH = GuideTextControl::MeasureHeight(*pGraphics, kGuideBodyBottomText, kGuideBodyText, kGuideBoldFontID, guideCursor.W());
-    const IRECT guideBodyBottomBounds = guideCursor.GetFromBottom(guideBodyBottomH);
-    const IRECT guideDiagramBounds = guideCursor.GetReducedFromBottom(guideBodyBottomH + kGuideGap);
-
-    // Right strip: one short tip per always-visible right-column indicator (shutUpBounds etc.,
-    // computed above), each vertically centred on its own indicator's centre so a glance across
-    // from the real element to its explanation lands roughly level -- rather than just stacked top
-    // to bottom, which read as a plain list disconnected from what it was labelling. shutUpBounds/
-    // sprinkleCountBounds/noteBounds sit close together near the top (see rightCursor's own
-    // layout), close enough that two of their tips can collide if either wraps to several lines in
-    // this narrow strip -- alignGuideTip's `prevBottom` clamp pushes a tip down just enough to
-    // clear the one above it when that happens, so centring is a preference, not a guarantee.
-    const IRECT guideTipStrip = tabContentArea.GetReducedFromLeft(guideColumn.W() + kGuideRightGap);
-    float guideTipPrevBottom = -guideTipStrip.H(); // no prior tip yet -- can't clamp against one
-    auto alignGuideTip = [&](const char* tipText, const IRECT& target) {
-      const float h = GuideTextControl::MeasureHeight(*pGraphics, tipText, kGuideTipText, kGuideBoldFontID, guideTipStrip.W());
-      const float top = std::max(target.MH() - h * 0.5f, guideTipPrevBottom + kGuideGap);
-      guideTipPrevBottom = top + h;
-      return IRECT(guideTipStrip.L, top, guideTipStrip.R, top + h);
-    };
-    const IRECT guideTipShutUpBounds = alignGuideTip(kGuideTipShutUp, shutUpBounds);
-    const IRECT guideTipSprinkleCountBounds = alignGuideTip(kGuideTipSprinkleCount, sprinkleCountBounds);
-    const IRECT guideTipNoteDisplayBounds = alignGuideTip(kGuideTipNoteDisplay, noteBounds);
-    const IRECT guideTipEnvelopeMeterBounds = alignGuideTip(kGuideTipEnvelopeMeter, meterBounds);
-    const IRECT guideTipTriggerLightBounds = alignGuideTip(kGuideTipTriggerLight, triggerLightBounds);
-#endif
 
     // Quick Guide tab: a single static overlay image (resources/img/quick_guide.png, 1118x769
     // native pixels) replacing all the hand-placed prose/tip text above. Positioned at native
@@ -1120,19 +1025,6 @@ Sparkles::Sparkles(const InstanceInfo& info)
       setTabbed(kCtrlTagKeyScale, keyScaleDropdownBounds, EUITab::NoteMatrix);
       setTabbed(kCtrlTagKeyMode, keyModeBounds, EUITab::NoteMatrix);
       setTabbed(kCtrlTagNoteMatrix, noteMatrixBounds, EUITab::NoteMatrix);
-#if 0 // superseded by kCtrlTagQuickGuideImage below -- see the #if 0 above for why these stay
-      setTabbed(kCtrlTagQuickGuideTitle, guideTitleBounds, EUITab::QuickGuide);
-      setTabbed(kCtrlTagQuickGuideIntro, guideIntroBounds, EUITab::QuickGuide);
-      setTabbed(kCtrlTagQuickGuideBullets, guideBulletsBounds, EUITab::QuickGuide);
-      setTabbed(kCtrlTagQuickGuideOutro, guideOutroBounds, EUITab::QuickGuide);
-      setTabbed(kCtrlTagQuickGuideDiagram, guideDiagramBounds, EUITab::QuickGuide);
-      setTabbed(kCtrlTagQuickGuideBodyBottom, guideBodyBottomBounds, EUITab::QuickGuide);
-      setTabbed(kCtrlTagQuickGuideTipShutUp, guideTipShutUpBounds, EUITab::QuickGuide);
-      setTabbed(kCtrlTagQuickGuideTipSprinkleCount, guideTipSprinkleCountBounds, EUITab::QuickGuide);
-      setTabbed(kCtrlTagQuickGuideTipNoteDisplay, guideTipNoteDisplayBounds, EUITab::QuickGuide);
-      setTabbed(kCtrlTagQuickGuideTipEnvelopeMeter, guideTipEnvelopeMeterBounds, EUITab::QuickGuide);
-      setTabbed(kCtrlTagQuickGuideTipTriggerLight, guideTipTriggerLightBounds, EUITab::QuickGuide);
-#endif
       setTabbed(kCtrlTagQuickGuideImage, guideImageBounds, EUITab::QuickGuide);
       setTabbed(kCtrlTagNoteBars, noteBarsBounds, EUITab::Detection);
 
@@ -1185,6 +1077,7 @@ Sparkles::Sparkles(const InstanceInfo& info)
     // occupy.
     const IBitmap backgroundBitmap = pGraphics->LoadBitmap(BACKGROUND_FN);
     pGraphics->AttachControl(new BackgroundImageControl(bounds, backgroundBitmap));
+    const IBitmap ledShineBitmap = pGraphics->LoadBitmap(LED_SHINE_FN);
 
     // Attached next so the translucent bars render behind every real control -- draw order follows
     // attach order. Detection-tab-scoped (see setTabbed above); bounds passed here are just the
@@ -1258,30 +1151,6 @@ Sparkles::Sparkles(const InstanceInfo& info)
       }, presetLabel.Get(), presetStyle), kCtrlTagPresets);
     }
 
-#if 0 // superseded by kCtrlTagQuickGuideImage below -- see the #if 0 above for why these stay
-    pGraphics->AttachControl(new ITextControl(guideTitleBounds, "Quick Guide", kGroupLabelText), kCtrlTagQuickGuideTitle);
-    pGraphics->AttachControl(new GuideTextControl(guideIntroBounds, kGuideIntroText,
-      kGuideBodyText, kGuideBoldFontID), kCtrlTagQuickGuideIntro);
-    pGraphics->AttachControl(new GuideTextControl(guideBulletsBounds, kGuideBulletsText,
-      kGuideBodyText, kGuideBoldFontID), kCtrlTagQuickGuideBullets);
-    pGraphics->AttachControl(new GuideTextControl(guideOutroBounds, kGuideOutroText,
-      kGuideBodyText, kGuideBoldFontID), kCtrlTagQuickGuideOutro);
-    pGraphics->AttachControl(new ITextControl(guideDiagramBounds, "(diagram coming soon)",
-      kGuideBodyText.WithAlign(EAlign::Center).WithVAlign(EVAlign::Middle).WithFGColor(sparkle_palette::kLinesInterior),
-      sparkle_palette::kCardFill), kCtrlTagQuickGuideDiagram);
-    pGraphics->AttachControl(new GuideTextControl(guideBodyBottomBounds, kGuideBodyBottomText,
-      kGuideBodyText, kGuideBoldFontID), kCtrlTagQuickGuideBodyBottom);
-    pGraphics->AttachControl(new GuideTextControl(guideTipShutUpBounds, kGuideTipShutUp,
-      kGuideTipText, kGuideBoldFontID, EAlign::Far), kCtrlTagQuickGuideTipShutUp);
-    pGraphics->AttachControl(new GuideTextControl(guideTipSprinkleCountBounds, kGuideTipSprinkleCount,
-      kGuideTipText, kGuideBoldFontID, EAlign::Far), kCtrlTagQuickGuideTipSprinkleCount);
-    pGraphics->AttachControl(new GuideTextControl(guideTipNoteDisplayBounds, kGuideTipNoteDisplay,
-      kGuideTipText, kGuideBoldFontID, EAlign::Far), kCtrlTagQuickGuideTipNoteDisplay);
-    pGraphics->AttachControl(new GuideTextControl(guideTipEnvelopeMeterBounds, kGuideTipEnvelopeMeter,
-      kGuideTipText, kGuideBoldFontID, EAlign::Far), kCtrlTagQuickGuideTipEnvelopeMeter);
-    pGraphics->AttachControl(new GuideTextControl(guideTipTriggerLightBounds, kGuideTipTriggerLight,
-      kGuideTipText, kGuideBoldFontID, EAlign::Far), kCtrlTagQuickGuideTipTriggerLight);
-#endif
     // Quick Guide tab overlay -- see the guideImageBounds comment above. BackgroundImageControl
     // (ui/BackgroundImageControl.h) is reused as-is: it's already exactly "stretch this bitmap to
     // fill mRECT via DrawFittedBitmap", which is what's needed here too, just at a smaller rect
@@ -1315,7 +1184,7 @@ Sparkles::Sparkles(const InstanceInfo& info)
       IText(11.f, sparkle_palette::kLinesInterior, sparkle_palette::kFontFredokaRegular), [](const std::array<float, 1>& vals, WDL_String& str) {
       str.SetFormatted(32, "%d sprinkles", static_cast<int>(std::lround(vals[0])));
     }), kCtrlTagSprinkleCount);
-    pGraphics->AttachControl(new TriggerLightControl(triggerLightBounds), kCtrlTagTriggerLight);
+    pGraphics->AttachControl(new TriggerLightControl(triggerLightBounds, ledShineBitmap), kCtrlTagTriggerLight);
     pGraphics->AttachControl(new IVButtonControl(shutUpBounds, [&](IControl* pCaller) {
       SplashClickActionFunc(pCaller);
       mShutUpRequested.store(true, std::memory_order_release);
