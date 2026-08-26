@@ -164,16 +164,20 @@ namespace
   // Synth/Stereo's per-(ray,sparkle) formulas, there's no way to recompute "what the chain would
   // have done" partway through without an arbitrary retroactive-vs-continuation choice, so none of
   // it is made live (see mPendingNotes/ResolveEventProperties).
+  // Pre Delay/Pre Interval's x pulled in 20px from their old 80/178 to close the gap the Unit
+  // toggle's 30% pill shrink (kUnitButtonWScale/HScale) opened up next to it -- see that constant's
+  // comment.
   constexpr ParamClusterDesc kOffsetControls[] = {
     { kParamPreDelayUnit, "Unit *",         EParamCtrlKind::Toggle,   5.f,   22.f },
-    { kParamPreDelay,     "Pre Delay *",    EParamCtrlKind::TimeKnob, 80.f, 22.f, kParamPreDelayUnit },
-    { kParamPreInterval,  "Pre Interval *", EParamCtrlKind::Knob,     178.f, 22.f },
+    { kParamPreDelay,     "Pre Delay *",    EParamCtrlKind::TimeKnob, 60.f, 22.f, kParamPreDelayUnit },
+    { kParamPreInterval,  "Pre Interval *", EParamCtrlKind::Knob,     158.f, 22.f },
   };
 
+  // Duration's x pulled in the same 20px as Pre Delay/Ray Delay/Delay below, same reason.
   constexpr ParamClusterDesc kSparklePropertyControls[] = {
     { kParamVelocity,     "Velocity", EParamCtrlKind::Knob,     5.f,   22.f, -1, kParamLoudnessRm, kParamLoudnessSm },
     { kParamDurationUnit, "Unit",     EParamCtrlKind::Toggle,   5.f,   100.f },
-    { kParamDuration,     "Duration", EParamCtrlKind::TimeKnob, 80.f, 100.f, kParamDurationUnit, kParamDurationRm, kParamDurationSm },
+    { kParamDuration,     "Duration", EParamCtrlKind::TimeKnob, 60.f, 100.f, kParamDurationUnit, kParamDurationRm, kParamDurationSm },
   };
 
   // Every *Unit toggle's UI caption is just "Unit" (plus `*` where the base param is frozen) rather
@@ -184,9 +188,9 @@ namespace
   // without needing the knob's own name repeated.
   constexpr ParamClusterDesc kTimingControls[] = {
     { kParamRayDelayUnit, "Unit *",     EParamCtrlKind::Toggle,   5.f,   22.f },
-    { kParamRayDelay,     "Ray Delay *", EParamCtrlKind::TimeKnob, 80.f, 22.f, kParamRayDelayUnit, kParamRayDelayRm },
+    { kParamRayDelay,     "Ray Delay *", EParamCtrlKind::TimeKnob, 60.f, 22.f, kParamRayDelayUnit, kParamRayDelayRm },
     { kParamDelayUnit,    "Unit *",     EParamCtrlKind::Toggle,   5.f,   92.f },
-    { kParamDelay,        "Delay *",    EParamCtrlKind::TimeKnob, 80.f, 92.f, kParamDelayUnit, kParamDelayRm, kParamDelaySm },
+    { kParamDelay,        "Delay *",    EParamCtrlKind::TimeKnob, 60.f, 92.f, kParamDelayUnit, kParamDelayRm, kParamDelaySm },
   };
 
   constexpr ParamClusterDesc kPitchControls[] = {
@@ -283,6 +287,16 @@ namespace
   // itself -- is the place to fine-tune.
   constexpr float kOptionButtonWScale = 0.8f;
   constexpr float kOptionButtonHScale = kOptionButtonWScale * 1.1f;
+  // Toggle-kind clusters are only ever the four Beats/ms *Unit params (see EParamCtrlKind's own
+  // comment) -- their pill is a two-state flip with a one-word "Unit"/"Ray Unit" caption and a
+  // short "Beats"/"ms" value, so it reads fine 30% smaller than a Dropdown-kind pill (Wrap, Detect,
+  // Trigger On, etc., which keep the full kOptionButtonWScale/HScale). Applied on top of that same
+  // scale rather than replacing it, so this stays a relative "30% smaller than the normal option
+  // button", not a separately-tuned absolute size. The freed horizontal space is compensated by
+  // pulling each Unit toggle's paired TimeKnob (and anything further right in the same row) left in
+  // kOffsetControls/kSparklePropertyControls/kTimingControls' own x values below, rather than here.
+  constexpr float kUnitButtonWScale = kOptionButtonWScale * 0.7f;
+  constexpr float kUnitButtonHScale = kOptionButtonHScale * 0.7f;
   // Toggle/Dropdown-kind clusters (IVSwitchControl, valueInButton) carve their caption label off
   // the TOP of the cell only -- the value renders inside the button itself instead of a separate
   // band below (see the EParamCtrlKind::Toggle/Dropdown case in the attach loop), unlike a knob,
@@ -1035,8 +1049,12 @@ Sparkles::Sparkles(const InstanceInfo& info)
         // clusters get their own (non-uniform, width < height) shrink here, centred in the same
         // static (x, y) slot. Knob/TimeKnob-kind clusters are untouched.
         const bool isOptionButton = cluster.kind == EParamCtrlKind::Dropdown || cluster.kind == EParamCtrlKind::Toggle;
+        // Toggle-kind (the four *Unit pills) shrinks 30% further than Dropdown-kind -- see
+        // kUnitButtonWScale/HScale's own comment.
+        const float buttonWScale = cluster.kind == EParamCtrlKind::Toggle ? kUnitButtonWScale : kOptionButtonWScale;
+        const float buttonHScale = cluster.kind == EParamCtrlKind::Toggle ? kUnitButtonHScale : kOptionButtonHScale;
         const IRECT clusterButtonRect = isOptionButton
-          ? clusterRect.GetCentredInside(clusterRect.W() * kOptionButtonWScale, clusterRect.H() * kOptionButtonHScale)
+          ? clusterRect.GetCentredInside(clusterRect.W() * buttonWScale, clusterRect.H() * buttonHScale)
           : clusterRect;
         flatControls.push_back(FlatCtrl{ clusterButtonRect.GetPadded(-2.f), cluster.paramIdx, cluster.label, cluster.kind, cluster.unitParamIdx, false, group.tab });
 
