@@ -886,3 +886,150 @@ TEST(SparkleGenerator_Envelope_SustainRmSmClampedTo01)
   CHECK(ApproxEqual(events[0].sustainLevel, 0.8));
   CHECK(events[1].sustainLevel == 0.0); // ray 1: 0.8 * (-1) = -0.8, clamped up to 0.0
 }
+
+TEST(SparkleGenerator_Event_CarriesRayAndSparkleIndices)
+{
+  // rayN/sparkleN let a caller re-resolve this specific note's properties later (see
+  // ResolveEventProperties tests below) -- must match the (ray, sparkle) position Generate() itself
+  // walked, in ray-major/sparkle-minor order.
+  NoteMatrix matrix;
+  SparkleParams params;
+  params.nRays = 2;
+  params.nSparklesPerRay = 3;
+  params.rangeMin = 0;
+  params.rangeMax = 127;
+  params.wrapMode = WrapMode::Around;
+  params.rayInterval = 1;
+  params.interval = 1;
+
+  std::vector<SparkleEvent> events;
+  SparkleGenerator::Generate(matrix, params, 60, kBpm, kSampleRate, events);
+
+  CHECK(events.size() == 6);
+  int i = 0;
+  for (int rayN = 0; rayN < 2; ++rayN)
+    for (int sparkleN = 0; sparkleN < 3; ++sparkleN, ++i)
+    {
+      CHECK(events[i].rayN == rayN);
+      CHECK(events[i].sparkleN == sparkleN);
+    }
+}
+
+TEST(SparkleGenerator_ResolveEventProperties_MatchesGenerateAtTheSameParams)
+{
+  // Generate() calls ResolveEventProperties() internally to fill each event -- calling it again
+  // directly, with the *same* params/rayN/sparkleN/triggerNote/timelineSample the event was
+  // generated with, must reproduce every field exactly.
+  NoteMatrix matrix;
+  SparkleParams params;
+  params.nRays = 2;
+  params.nSparklesPerRay = 2;
+  params.rangeMin = 0;
+  params.rangeMax = 127;
+  params.wrapMode = WrapMode::Around;
+  params.rayInterval = 1;
+  params.interval = 1;
+  params.loudness = 90.0;
+  params.loudnessSm = 0.7;
+  params.duration = { 0.3, TimeUnit::Beats };
+  params.panning = PanMode::Sine;
+  params.width = 0.6;
+  params.attack = 12.0;
+  params.attackRm = 1.3;
+
+  const int triggerNote = 64;
+  const int64_t timelineSample = 777;
+
+  std::vector<SparkleEvent> events;
+  SparkleGenerator::Generate(matrix, params, triggerNote, kBpm, kSampleRate, events, timelineSample);
+  CHECK(events.size() == 4);
+
+  for (const auto& event : events)
+  {
+    const auto props = SparkleGenerator::ResolveEventProperties(
+      params, event.rayN, event.sparkleN, triggerNote, timelineSample, kBpm, kSampleRate);
+    CHECK(props.velocity == event.velocity);
+    CHECK(props.durationSamples == event.durationSamples);
+    CHECK(ApproxEqual(props.pan, event.pan));
+    CHECK(props.attackSamples == event.attackSamples);
+    CHECK(props.decaySamples == event.decaySamples);
+    CHECK(ApproxEqual(props.sustainLevel, event.sustainLevel));
+    CHECK(props.releaseSamples == event.releaseSamples);
+  }
+}
+
+TEST(SparkleGenerator_ResolveEventProperties_ReflectsChangedParamsNotCachedState)
+{
+  // The whole point of splitting ResolveEventProperties() out: re-resolving a specific
+  // already-generated note against a DIFFERENT SparkleParams (e.g. a knob twisted mid-sprinkle)
+  // must produce the new params' values, not whatever was baked in at generation time.
+  NoteMatrix matrix;
+  SparkleParams original;
+  original.nRays = 1;
+  original.nSparklesPerRay = 1;
+  original.rangeMin = 0;
+  original.rangeMax = 127;
+  original.wrapMode = WrapMode::Around;
+  original.loudness = 40.0;
+  original.duration = { 0.2, TimeUnit::Beats };
+  original.attack = 5.0;
+  original.decay = 5.0;
+  original.sustain = 0.6;
+  original.release = 15.0;
+
+  const int triggerNote = 60;
+
+  std::vector<SparkleEvent> events;
+  SparkleGenerator::Generate(matrix, original, triggerNote, kBpm, kSampleRate, events);
+  CHECK(events.size() == 1);
+  CHECK(events[0].velocity == 40);
+
+  SparkleParams changed = original;
+  changed.loudness = 110.0;
+  changed.duration = { 2.0, TimeUnit::Beats };
+  changed.attack = 200.0;
+
+  const auto props = SparkleGenerator::ResolveEventProperties(
+    changed, events[0].rayN, events[0].sparkleN, triggerNote, /*timelineSample=*/0, kBpm, kSampleRate);
+
+  CHECK(props.velocity == 110);
+  CHECK(props.velocity != events[0].velocity);
+  CHECK(props.durationSamples == BeatsToSamples(2.0));
+  CHECK(props.durationSamples != events[0].durationSamples);
+  CHECK(props.attackSamples == MsToSamples(200.0));
+  CHECK(props.attackSamples != events[0].attackSamples);
+}
+
+TEST(SparkleGenerator_ResolveEventProperties_RayRotationClosedFormMatchesGenerate)
+{
+  // ResolveEventProperties resolves ray_rotation's sign from a closed-form formula (since it only
+  // ever sees one rayN at a time), instead of Generate()'s running raySign flip -- confirm both
+  // agree across several rays for both Keep and Invert, reusing
+  // SparkleGenerator_Panning_RayRotation_KeepVsInvert's setup (width=1, phase=0.25 -> Wave=1, so
+  // pan reads out as exactly the sign).
+  NoteMatrix matrix;
+  SparkleParams params;
+  params.nRays = 5;
+  params.nSparklesPerRay = 1;
+  params.rangeMin = 60;
+  params.rangeMax = 90;
+  params.wrapMode = WrapMode::Around;
+  params.panning = PanMode::Sine;
+  params.phase = 0.25;
+  params.width = 1.0;
+  params.rayRotation = RayRotation::R;
+  params.rayRotationRm = RayRotationMode::Invert;
+
+  const int triggerNote = 60;
+
+  std::vector<SparkleEvent> events;
+  SparkleGenerator::Generate(matrix, params, triggerNote, kBpm, kSampleRate, events);
+  CHECK(events.size() == 5);
+
+  for (const auto& event : events)
+  {
+    const auto props = SparkleGenerator::ResolveEventProperties(
+      params, event.rayN, event.sparkleN, triggerNote, /*timelineSample=*/0, kBpm, kSampleRate);
+    CHECK(ApproxEqual(props.pan, event.pan));
+  }
+}

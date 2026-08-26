@@ -74,3 +74,4 @@
 #define FREDOKA_BOLD_FN "Fredoka-Bold.ttf"
 
 #define BACKGROUND_FN "background.png"
+#define QUICK_GUIDE_FN "quick_guide.png"

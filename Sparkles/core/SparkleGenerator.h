@@ -51,10 +51,22 @@ namespace sparkle_core
 
   // A single emitted MIDI note (§1). Times/durations are already resolved to samples relative to
   // the trigger (i.e. excluding the trigger's own transport position).
+  //
+  // velocity/durationSamples/pan/attack/decay/sustain/release are all resolved by
+  // ResolveEventProperties() below from a (rayN, sparkleN) pair plus whatever SparkleParams is
+  // current -- Generate() calls it once, at generation time, to fill these fields (so nothing about
+  // Generate()'s own behavior/tests changes); a caller wanting these values to reflect a *later*,
+  // possibly-changed SparkleParams (i.e. a knob twisted after the sprinkle was triggered but before
+  // this particular note actually sounds) calls ResolveEventProperties() again itself, using rayN/
+  // sparkleN below, rather than trusting the value baked in here. See Sparkles.cpp's mPendingNotes
+  // for that second call site.
   struct SparkleEvent
   {
     int64_t timeOffsetSamples = 0;
     int note = 0;
+    int rayN = 0;
+    int sparkleN = 0;
+
     int velocity = 0;
     int64_t durationSamples = 0;
     double pan = 0.0; // -1 = 100% L, +1 = 100% R (§7.6)
@@ -65,6 +77,20 @@ namespace sparkle_core
     int64_t attackSamples = 0;
     int64_t decaySamples = 0;
     double sustainLevel = 1.0; // 0-1
+    int64_t releaseSamples = 0;
+  };
+
+  // Everything ResolveEventProperties() resolves for one (ray_n, sparkle_n) -- see SparkleEvent's
+  // header comment above for why this is split out from the structural fields (timeOffsetSamples/
+  // note/rayN/sparkleN).
+  struct SparkleEventProperties
+  {
+    int velocity = 0;
+    int64_t durationSamples = 0;
+    double pan = 0.0;
+    int64_t attackSamples = 0;
+    int64_t decaySamples = 0;
+    double sustainLevel = 1.0;
     int64_t releaseSamples = 0;
   };
 
@@ -224,8 +250,6 @@ namespace sparkle_core
       double rayDelayAccumSamples = 0.0; // Sigma (ray_delay * ray_delay_rm^i) for i = 0..rayN
       double rayIntervalAccum = 0.0;     // Sigma (ray_interval * ray_interval_rm^i) for i = 0..rayN
 
-      double raySign = (params.rayRotation == RayRotation::L) ? 1.0 : -1.0;
-
       for (int rayN = 0; rayN < params.nRays; ++rayN)
       {
         if (outEvents.size() >= kMaxEventsPerTrigger)
@@ -239,9 +263,6 @@ namespace sparkle_core
         const double rayIntervalOffset = rayIntervalAccum;
 
         const int numSparkles = NumSparklesForRay(params, rayN);
-        const double signForThisRay = raySign;
-        if (params.rayRotationRm == RayRotationMode::Invert)
-          raySign = -raySign;
 
         double withinRaySamplesAccum = 0.0; // used for sparkleN == 0, then advanced below
         double withinRayIntervalAccum = 0.0;
@@ -261,34 +282,23 @@ namespace sparkle_core
           SparkleEvent event;
           event.timeOffsetSamples = static_cast<int64_t>(std::llround(rayStartSamples + withinRaySamplesAccum));
           event.note = *note;
+          event.rayN = rayN;
+          event.sparkleN = sparkleN;
 
-          const double loudness = params.loudness * std::pow(params.loudnessRm, rayN) * std::pow(params.loudnessSm, sparkleN);
-          event.velocity = std::clamp(static_cast<int>(std::lround(loudness)), 1, 127);
-
-          const double durationMagnitude =
-            params.duration.value * std::pow(params.durationRm, rayN) * std::pow(params.durationSm, sparkleN);
-          const double durationSamples = ToSamples(durationMagnitude, params.duration.unit, bpm, sampleRate);
-          event.durationSamples = std::max<int64_t>(0, static_cast<int64_t>(std::llround(durationSamples)));
-
-          const double width = params.width * std::pow(params.widthRm, rayN) * std::pow(params.widthSm, sparkleN);
-          // Phase's _rm/_sm combine ADDITIVELY, unlike every other property here -- a per-ray/
-          // per-sparkle rotation offset reads far more usefully than an exponential multiplier
-          // would on a cyclic 0-1 quantity. Any value pushed outside [0,1) wraps to its decimal
-          // part naturally via Wave()'s own `frac = p - floor(p)`, so no explicit wrap is needed
-          // here (e.g. 5.3 -> 0.3, including for negative sums).
-          const double phase = params.phase + params.phaseRm * rayN + params.phaseSm * sparkleN;
-          event.pan = Pan(params.panning, signForThisRay, width, phase, params.seed, timelineSample, triggerNote, rayN, sparkleN);
-
-          // attack/decay/release are resolved in milliseconds (§7.7); converted to seconds here,
-          // once, right before the sample conversion below.
-          const double attackSeconds = (params.attack * std::pow(params.attackRm, rayN) * std::pow(params.attackSm, sparkleN)) * 0.001;
-          const double decaySeconds = (params.decay * std::pow(params.decayRm, rayN) * std::pow(params.decaySm, sparkleN)) * 0.001;
-          const double releaseSeconds = (params.release * std::pow(params.releaseRm, rayN) * std::pow(params.releaseSm, sparkleN)) * 0.001;
-          event.attackSamples = std::max<int64_t>(0, static_cast<int64_t>(std::llround(std::max(0.0, attackSeconds) * sampleRate)));
-          event.decaySamples = std::max<int64_t>(0, static_cast<int64_t>(std::llround(std::max(0.0, decaySeconds) * sampleRate)));
-          event.releaseSamples = std::max<int64_t>(0, static_cast<int64_t>(std::llround(std::max(0.0, releaseSeconds) * sampleRate)));
-          event.sustainLevel = std::clamp(
-            params.sustain * std::pow(params.sustainRm, rayN) * std::pow(params.sustainSm, sparkleN), 0.0, 1.0);
+          // Resolved here (with `params` as it stands right now) purely so this event is already
+          // playable as-is if nothing changes before it sounds -- see SparkleEvent's header comment
+          // for why a caller that DOES see a changed SparkleParams before this note fires should
+          // call ResolveEventProperties() again itself, using event.rayN/event.sparkleN, rather than
+          // trust these fields.
+          const SparkleEventProperties props =
+            ResolveEventProperties(params, rayN, sparkleN, triggerNote, timelineSample, bpm, sampleRate);
+          event.velocity = props.velocity;
+          event.durationSamples = props.durationSamples;
+          event.pan = props.pan;
+          event.attackSamples = props.attackSamples;
+          event.decaySamples = props.decaySamples;
+          event.sustainLevel = props.sustainLevel;
+          event.releaseSamples = props.releaseSamples;
 
           outEvents.push_back(event);
 
@@ -298,6 +308,58 @@ namespace sparkle_core
           withinRayIntervalAccum += params.interval * std::pow(params.intervalRm, rayN) * std::pow(params.intervalSm, k - 1);
         }
       }
+    }
+
+    // Resolves velocity/duration/pan/ADSR for one (rayN, sparkleN) pair directly from `params`,
+    // with no dependency on any other ray/sparkle -- every formula here is a pure function of
+    // (rayN, sparkleN) (plus triggerNote/timelineSample, for pan's random mode), unlike the delay/
+    // interval chains Generate() accumulates ray-by-ray above, which depend on the whole sequence
+    // leading up to that ray. That purity is what lets a caller re-resolve a specific, already-
+    // generated note's properties later against a *different*, possibly-live SparkleParams and get
+    // a meaningful answer -- see SparkleEvent's header comment and Sparkles.cpp's mPendingNotes.
+    static SparkleEventProperties ResolveEventProperties(const SparkleParams& params, int rayN, int sparkleN,
+                                                           int triggerNote, int64_t timelineSample,
+                                                           double bpm, double sampleRate)
+    {
+      SparkleEventProperties props;
+
+      const double loudness = params.loudness * std::pow(params.loudnessRm, rayN) * std::pow(params.loudnessSm, sparkleN);
+      props.velocity = std::clamp(static_cast<int>(std::lround(loudness)), 1, 127);
+
+      const double durationMagnitude =
+        params.duration.value * std::pow(params.durationRm, rayN) * std::pow(params.durationSm, sparkleN);
+      const double durationSamples = ToSamples(durationMagnitude, params.duration.unit, bpm, sampleRate);
+      props.durationSamples = std::max<int64_t>(0, static_cast<int64_t>(std::llround(durationSamples)));
+
+      // sign(ray_n) = (ray_rotation==L ? 1 : -1) * (ray_rotation_rm==Invert ? -1 : 1)^ray_n -- the
+      // closed form of the raySign recurrence Generate() used to walk ray-by-ray (each Invert ray
+      // flips the running sign starting from ray 0's own sign), reproduced here since this function
+      // only ever sees one rayN at a time, not the sequence leading up to it.
+      const double initialSign = (params.rayRotation == RayRotation::L) ? 1.0 : -1.0;
+      const bool flipped = params.rayRotationRm == RayRotationMode::Invert && (rayN % 2) != 0;
+      const double signForThisRay = flipped ? -initialSign : initialSign;
+
+      const double width = params.width * std::pow(params.widthRm, rayN) * std::pow(params.widthSm, sparkleN);
+      // Phase's _rm/_sm combine ADDITIVELY, unlike every other property here -- a per-ray/
+      // per-sparkle rotation offset reads far more usefully than an exponential multiplier
+      // would on a cyclic 0-1 quantity. Any value pushed outside [0,1) wraps to its decimal
+      // part naturally via Wave()'s own `frac = p - floor(p)`, so no explicit wrap is needed
+      // here (e.g. 5.3 -> 0.3, including for negative sums).
+      const double phase = params.phase + params.phaseRm * rayN + params.phaseSm * sparkleN;
+      props.pan = Pan(params.panning, signForThisRay, width, phase, params.seed, timelineSample, triggerNote, rayN, sparkleN);
+
+      // attack/decay/release are resolved in milliseconds (§7.7); converted to seconds here,
+      // once, right before the sample conversion below.
+      const double attackSeconds = (params.attack * std::pow(params.attackRm, rayN) * std::pow(params.attackSm, sparkleN)) * 0.001;
+      const double decaySeconds = (params.decay * std::pow(params.decayRm, rayN) * std::pow(params.decaySm, sparkleN)) * 0.001;
+      const double releaseSeconds = (params.release * std::pow(params.releaseRm, rayN) * std::pow(params.releaseSm, sparkleN)) * 0.001;
+      props.attackSamples = std::max<int64_t>(0, static_cast<int64_t>(std::llround(std::max(0.0, attackSeconds) * sampleRate)));
+      props.decaySamples = std::max<int64_t>(0, static_cast<int64_t>(std::llround(std::max(0.0, decaySeconds) * sampleRate)));
+      props.releaseSamples = std::max<int64_t>(0, static_cast<int64_t>(std::llround(std::max(0.0, releaseSeconds) * sampleRate)));
+      props.sustainLevel = std::clamp(
+        params.sustain * std::pow(params.sustainRm, rayN) * std::pow(params.sustainSm, sparkleN), 0.0, 1.0);
+
+      return props;
     }
 
   private:

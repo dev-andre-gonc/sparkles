@@ -61,7 +61,8 @@ namespace
   // Which of the 6 tabs (see mLayoutFunc) a group's controls show under -- see CLAUDE.md and
   // docs/SPEC.md §8 for why Detection and Note Matrix/Key/Scale stay separate from the other three
   // (the Presets button below only reaches General/PitchTiming/Synth). QuickGuide has no
-  // ParamGroupDesc at all -- it's a single hand-placed placeholder image control.
+  // ParamGroupDesc at all -- it's hand-placed static text (title + two body blocks) plus a
+  // placeholder box reserved for a future diagram, see mLayoutFunc.
   enum class EUITab { QuickGuide, General, Detection, PitchTiming, NoteMatrix, Synth };
 
   // Toggle is for 2-option enums that should alternate directly on click (IVSwitchControl) rather
@@ -104,8 +105,14 @@ namespace
   // first row still starts right under its own heading, just at y=22 now instead of y=18 --
   // kGroupLabelH itself stayed at 18 (see that constant's comment), so this only opens up a few
   // extra px of breathing room under the heading, it doesn't change the heading's own size.
+  // Output Mode is marked frozen (`*`) even though nothing else about it is structural -- it's a
+  // routing decision (which of mEventScheduler/mSynthEngine a note goes to), baked per sprinkle at
+  // trigger time same as before this pass, deliberately not made live alongside Sparkle Properties/
+  // Synth/Stereo below (see mPendingNotes/ResolveEventProperties). Passthrough/Gain gets no `*` --
+  // it's applied continuously to the dry signal every block (see ProcessBlock's `gain`), never a
+  // per-sparkle property to begin with.
   constexpr ParamClusterDesc kGeneralControls[] = {
-    { kParamOutputMode,     "Output",       EParamCtrlKind::Dropdown, 5.f,   22.f },
+    { kParamOutputMode,     "Output *",     EParamCtrlKind::Dropdown, 5.f,   22.f },
     { kParamGain,           "Passthrough",  EParamCtrlKind::Knob,     103.f, 22.f },
   };
 
@@ -132,42 +139,59 @@ namespace
   // Rays + Sparkles/Ray only -- a single row now that it sits beside General instead of stacked
   // under it (see kParamGroups). Range Min/Max + Wrap Mode split out into their own "Output Range"
   // group below, which takes this group's old (x, y) slot under General.
+  // Rays/Sparkles-per-Ray are marked frozen (`*`) -- they determine how many events a sprinkle
+  // generates at all, resolved once at trigger time (see SparkleGenerator::Generate); nothing about
+  // an already-generated sprinkle's own event count can change after the fact.
   constexpr ParamClusterDesc kSprinkleStructureControls[] = {
-    { kParamNRays,           "Rays",         EParamCtrlKind::Knob, 5.f,   22.f },
-    { kParamNSparklesPerRay, "Sparkles/Ray", EParamCtrlKind::Knob, 103.f, 22.f, -1, kParamNSparklesPerRayRm },
+    { kParamNRays,           "Rays *",         EParamCtrlKind::Knob, 5.f,   22.f },
+    { kParamNSparklesPerRay, "Sparkles/Ray *", EParamCtrlKind::Knob, 103.f, 22.f, -1, kParamNSparklesPerRayRm },
   };
 
   // Range Min/Max + Wrap Mode -- output note range/wrap is structural to the sprinkle, same as
   // ray/sparkle counts, so it stays on the General tab, just split into its own group now that
-  // Sprinkle Structure has moved beside General (see kParamGroups).
+  // Sprinkle Structure has moved beside General (see kParamGroups). Marked frozen (`*`) for the
+  // same reason as Rays/Sparkles-per-Ray above -- wrap_mode=Stop can truncate generation entirely,
+  // so these gate which/how many events exist, resolved once at trigger time.
   constexpr ParamClusterDesc kOutputRangeControls[] = {
-    { kParamRangeMin,  "Range Min", EParamCtrlKind::Knob,     5.f,   22.f },
-    { kParamRangeMax,  "Range Max", EParamCtrlKind::Knob,     103.f, 22.f },
-    { kParamWrapMode,  "Wrap",      EParamCtrlKind::Dropdown, 201.f, 22.f },
+    { kParamRangeMin,  "Range Min *", EParamCtrlKind::Knob,     5.f,   22.f },
+    { kParamRangeMax,  "Range Max *", EParamCtrlKind::Knob,     103.f, 22.f },
+    { kParamWrapMode,  "Wrap *",      EParamCtrlKind::Dropdown, 201.f, 22.f },
   };
 
+  // Every param on the Pitch/Timing tab is marked frozen (`*`): Pre Delay/Pre Interval set the
+  // sprinkle's one-time starting point, and Ray Delay/Delay and Ray Interval/Interval are each a
+  // running sum accumulated ray-by-ray/sparkle-by-sparkle (§7.4/§7.5) -- unlike Sparkle Properties/
+  // Synth/Stereo's per-(ray,sparkle) formulas, there's no way to recompute "what the chain would
+  // have done" partway through without an arbitrary retroactive-vs-continuation choice, so none of
+  // it is made live (see mPendingNotes/ResolveEventProperties).
   constexpr ParamClusterDesc kOffsetControls[] = {
-    { kParamPreDelayUnit, "Delay Unit",   EParamCtrlKind::Toggle,   5.f,   22.f },
-    { kParamPreDelay,     "Pre Delay",    EParamCtrlKind::TimeKnob, 80.f, 22.f, kParamPreDelayUnit },
-    { kParamPreInterval,  "Pre Interval", EParamCtrlKind::Knob,     178.f, 22.f },
+    { kParamPreDelayUnit, "Unit *",         EParamCtrlKind::Toggle,   5.f,   22.f },
+    { kParamPreDelay,     "Pre Delay *",    EParamCtrlKind::TimeKnob, 80.f, 22.f, kParamPreDelayUnit },
+    { kParamPreInterval,  "Pre Interval *", EParamCtrlKind::Knob,     178.f, 22.f },
   };
 
   constexpr ParamClusterDesc kSparklePropertyControls[] = {
-    { kParamVelocity,     "Velocity",      EParamCtrlKind::Knob,     5.f,   22.f, -1, kParamLoudnessRm, kParamLoudnessSm },
-    { kParamDurationUnit, "Duration Unit", EParamCtrlKind::Toggle,   5.f,   100.f },
-    { kParamDuration,     "Duration",      EParamCtrlKind::TimeKnob, 80.f, 100.f, kParamDurationUnit, kParamDurationRm, kParamDurationSm },
+    { kParamVelocity,     "Velocity", EParamCtrlKind::Knob,     5.f,   22.f, -1, kParamLoudnessRm, kParamLoudnessSm },
+    { kParamDurationUnit, "Unit",     EParamCtrlKind::Toggle,   5.f,   100.f },
+    { kParamDuration,     "Duration", EParamCtrlKind::TimeKnob, 80.f, 100.f, kParamDurationUnit, kParamDurationRm, kParamDurationSm },
   };
 
+  // Every *Unit toggle's UI caption is just "Unit" (plus `*` where the base param is frozen) rather
+  // than the param's full host-facing name (e.g. "Ray Delay Unit", see ParamList.h) -- the
+  // option-button label band is only kOptionButtonWScale x kCellW wide (~65px after padding), too
+  // narrow for the longer full names ("Ray Delay Unit *" overflowed/clipped there), and each toggle
+  // sits directly beside the one knob it modifies, so "Unit" alone reads fine from that pairing
+  // without needing the knob's own name repeated.
   constexpr ParamClusterDesc kTimingControls[] = {
-    { kParamRayDelayUnit, "Ray Delay Unit", EParamCtrlKind::Toggle,   5.f,   22.f },
-    { kParamRayDelay,     "Ray Delay",      EParamCtrlKind::TimeKnob, 80.f, 22.f, kParamRayDelayUnit, kParamRayDelayRm },
-    { kParamDelayUnit,    "Delay Unit",     EParamCtrlKind::Toggle,   5.f,   92.f },
-    { kParamDelay,        "Delay",          EParamCtrlKind::TimeKnob, 80.f, 92.f, kParamDelayUnit, kParamDelayRm, kParamDelaySm },
+    { kParamRayDelayUnit, "Unit *",     EParamCtrlKind::Toggle,   5.f,   22.f },
+    { kParamRayDelay,     "Ray Delay *", EParamCtrlKind::TimeKnob, 80.f, 22.f, kParamRayDelayUnit, kParamRayDelayRm },
+    { kParamDelayUnit,    "Unit *",     EParamCtrlKind::Toggle,   5.f,   92.f },
+    { kParamDelay,        "Delay *",    EParamCtrlKind::TimeKnob, 80.f, 92.f, kParamDelayUnit, kParamDelayRm, kParamDelaySm },
   };
 
   constexpr ParamClusterDesc kPitchControls[] = {
-    { kParamRayInterval, "Ray Interval", EParamCtrlKind::Knob, 5.f,   22.f, -1, kParamRayIntervalRm },
-    { kParamInterval,    "Interval",     EParamCtrlKind::Knob, 145.f, 22.f, -1, kParamIntervalRm, kParamIntervalSm },
+    { kParamRayInterval, "Ray Interval *", EParamCtrlKind::Knob, 5.f,   22.f, -1, kParamRayIntervalRm },
+    { kParamInterval,    "Interval *",     EParamCtrlKind::Knob, 145.f, 22.f, -1, kParamIntervalRm, kParamIntervalSm },
   };
 
   // Ray Rotation's Rm ("Keep"/"Invert") renders through the same numeric ModifierValueControl
@@ -463,6 +487,61 @@ namespace
   // a group's static x/y in kParamGroups matches where its heading visibly renders.
   const IText kGroupLabelText = kCompactStyle.labelText.WithSize(13.f).WithFGColor(sparkle_palette::kLinesOuter).WithFont(sparkle_palette::kFontFredokaSemiBold).WithAlign(EAlign::Near);
 
+  // Quick Guide tab's body copy -- same family/color/alignment as kGroupLabelText (so it reads as
+  // belonging to the same UI) but Regular weight instead of SemiBold and a size step down, so it's
+  // clearly secondary to a heading rather than competing with one. Paired with GuideTextControl
+  // (word-wraps to its own bounds' width, honors '\n' as a hard line break, and bolds "**word**"
+  // spans using kGuideBoldFontID -- see that file) rather than plain ITextControl, since this tab's
+  // text is long-form prose that also needs to call out specific tab/parameter names inline.
+  const IText kGuideBodyText = kGroupLabelText.WithSize(10.f).WithFont(sparkle_palette::kFontFredokaRegular);
+  // Right-strip tips are short labels, not prose -- a step smaller than the main body copy so five
+  // of them fit the narrow strip, and right-aligned (via GuideTextControl's own `align` ctor arg,
+  // not this IText's WithAlign -- see that class) to sit flush against the strip's own right edge,
+  // closest to the indicators the strip is describing.
+  const IText kGuideTipText = kGuideBodyText.WithSize(9.f);
+  // SemiBold (kGroupLabelText's own weight), not Bold -- Bold read as too heavy against this small
+  // 12px body copy when tried inline (a whole pill/heading can carry Bold, a couple of words mid-
+  // sentence can't without looking shouty).
+  constexpr const char* kGuideBoldFontID = sparkle_palette::kFontFredokaSemiBold;
+
+  // Guide prose, factored out as named constants (rather than inlined at each AttachControl call
+  // below) so mLayoutFunc's layout section can measure each block's real height via
+  // GuideTextControl::MeasureHeight and stack the next block right after it -- the exact same
+  // string has to feed both the measurement and the AttachControl call, or the two would drift.
+  constexpr const char* kGuideIntroText =
+    "Sparkles is a triggered MIDI delay/arpeggiator: it reacts to what you feed it (audio and/or "
+    "MIDI) with bursts of notes (audio and/or MIDI), fully customizable.\n\n"
+    "To get started, tune your **Detection** settings, shape your IN/OUT notes in the **Note "
+    "Matrix**, and try some presets. A couple tips:";
+  constexpr const char* kGuideBulletsText =
+    "\xe2\x80\xa2 **Trigger On** fires on note start or end. With **Detect Type** \"Audio\", start/end "
+    "follow the envelope crossing above/below **Threshold**; with \"MIDI\", only notes at or above "
+    "**Min Velocity** count. **Trigger Cooloff** sets the minimum gap between triggers.\n"
+    "\xe2\x80\xa2 The **Note Matrix** maps each note you play (column) to the notes played back "
+    "(rows). Click an orange cell on top to preview a note, prefill with the buttons on the right, "
+    "then adjust by hand. Click a row or column header to toggle it entirely -- only **Scale Mode** "
+    "is updated by presets.";
+  constexpr const char* kGuideOutroText = "This diagram may help with any manual changes needed:";
+  constexpr const char* kGuideBodyBottomText =
+    "Most parameters have **Ray** and **Sparkle** modifiers beside them -- use these to vary the "
+    "sound from ray to ray, and from sparkle to sparkle.";
+
+  // Right-strip tips (see kGuideColFrac's own comment) explaining the always-visible right-column
+  // indicators (see rightCursor above), one tip per indicator in the same top-to-bottom order they
+  // actually appear in: Shut Up, sprinkle count, note/confidence readout, envelope meter, trigger
+  // light.
+  constexpr const char* kGuideTipShutUp = "Emergency shut up button";
+  constexpr const char* kGuideTipSprinkleCount = "Number of sprinkles currently active";
+  constexpr const char* kGuideTipNoteDisplay = "Currently detected note and confidence level";
+  constexpr const char* kGuideTipEnvelopeMeter = "Visualizes current envelope state and threshold level";
+  constexpr const char* kGuideTipTriggerLight = "Flashes on trigger (even if no sprinkle fired)";
+
+  // Bottom-right footnote on General/PitchTiming/Synth explaining the `*`-suffixed labels among
+  // those tabs' kParamGroups clusters (see kCtrlTagFootnote in Sparkles.h) -- same family/weight as
+  // kGuideBodyText, smaller still and right-aligned (EAlign::Far) since it's a footnote, not body
+  // copy or a heading.
+  const IText kFootnoteText = kGuideBodyText.WithSize(10.f).WithAlign(EAlign::Far);
+
   // Recolors kCompactStyle per-tab so each tab's knobs/switches pick up that tab's own accent
   // color (sparkle_palette::kTabColors), the same way its selector pill is colored -- "colorful
   // like the tabs" rather than one flat neutral style everywhere. EUITab's own values line up 1:1
@@ -741,6 +820,13 @@ Sparkles::Sparkles(const InstanceInfo& info)
     const IRECT tabContentArea = middleColumnBounds.GetPadded(-10.f);
     const IRECT paramsArea = tabContentArea;
 
+    // Footnote explaining the `*`-suffixed labels among kParamGroups' clusters (General/
+    // PitchTiming/Synth only -- see kCtrlTagFootnote's comment in Sparkles.h and its Hide() call
+    // below, which covers those 3 tabs rather than going through the single-tab setTabbed helper).
+    // Right-aligned (EAlign::Far, see kFootnoteText) rather than measured to a fitted width, so it
+    // stays flush with tabContentArea's own right edge regardless of exact text length.
+    const IRECT footnoteBounds = tabContentArea.GetFromBottom(14.f);
+
     // Right column: everything that used to live in a persistent top strip (envelope meter, note/
     // confidence + sprinkle-count readouts, trigger light, Shut Up) -- never Hide()'d regardless of
     // mActiveTab, same reasoning as before (see the removed persistentStripBounds comment this
@@ -806,8 +892,86 @@ Sparkles::Sparkles(const InstanceInfo& info)
     const IRECT noteMatrixBounds =
       noteMatrixArea.GetCentredInside(noteMatrixSquare, noteMatrixSquare + NoteMatrixControl::kTriggerRowSize);
 
-    // Quick Guide tab: a single placeholder image control until the real guide PNG exists.
-    const IRECT quickGuideBounds = tabContentArea;
+#if 0 // superseded by the quick_guide.png overlay below -- kept until that's confirmed to look right
+    // Quick Guide tab: a title followed by Intro/Bullets/Outro prose (kGuideIntroText etc., see
+    // GuideTextControl) bracketing a placeholder box reserved for a future diagram, all confined to
+    // a left text column (kGuideColFrac); the remaining right strip holds one short tip per
+    // always-visible right-column indicator (kGuideTipShutUp etc.). Each prose block/tip is
+    // measured via GuideTextControl::MeasureHeight and stacked directly under the previous one
+    // (kGuideGap apart, cursor-style like rightCursor above) rather than given a fixed-fraction
+    // box -- guessed fractions left dead space whenever a block's actual text fell short of its
+    // box, which pushed the diagram down into that unused room. The diagram gets whatever's left
+    // once BodyBottom (measured too) claims its own actual height from the bottom, so tightening
+    // the prose above grows the diagram directly instead of leaving a gap. Bullets alone is inset
+    // from the left -- see its ECtrlTags comment for why that (not leading spaces in the string) is
+    // what actually indents it.
+    constexpr float kGuideColFrac = 0.8f;
+    constexpr float kGuideTitleH = 20.f;
+    constexpr float kGuideGap = 4.f;
+    constexpr float kGuideBulletsIndent = 12.f;
+    constexpr float kGuideRightGap = 10.f;
+    const IRECT guideColumn = tabContentArea.GetFromLeft(tabContentArea.W() * kGuideColFrac);
+    IRECT guideCursor = guideColumn;
+    const IRECT guideTitleBounds = guideCursor.GetFromTop(kGuideTitleH);
+    guideCursor = guideCursor.GetReducedFromTop(kGuideTitleH + kGuideGap);
+
+    const float guideIntroH = GuideTextControl::MeasureHeight(*pGraphics, kGuideIntroText, kGuideBodyText, kGuideBoldFontID, guideCursor.W());
+    const IRECT guideIntroBounds = guideCursor.GetFromTop(guideIntroH);
+    guideCursor = guideCursor.GetReducedFromTop(guideIntroH + kGuideGap);
+
+    const float guideBulletsW = guideCursor.W() - kGuideBulletsIndent;
+    const float guideBulletsH = GuideTextControl::MeasureHeight(*pGraphics, kGuideBulletsText, kGuideBodyText, kGuideBoldFontID, guideBulletsW);
+    const IRECT guideBulletsBounds = guideCursor.GetFromTop(guideBulletsH).GetReducedFromLeft(kGuideBulletsIndent);
+    guideCursor = guideCursor.GetReducedFromTop(guideBulletsH + kGuideGap);
+
+    const float guideOutroH = GuideTextControl::MeasureHeight(*pGraphics, kGuideOutroText, kGuideBodyText, kGuideBoldFontID, guideCursor.W());
+    const IRECT guideOutroBounds = guideCursor.GetFromTop(guideOutroH);
+    guideCursor = guideCursor.GetReducedFromTop(guideOutroH + kGuideGap);
+
+    const float guideBodyBottomH = GuideTextControl::MeasureHeight(*pGraphics, kGuideBodyBottomText, kGuideBodyText, kGuideBoldFontID, guideCursor.W());
+    const IRECT guideBodyBottomBounds = guideCursor.GetFromBottom(guideBodyBottomH);
+    const IRECT guideDiagramBounds = guideCursor.GetReducedFromBottom(guideBodyBottomH + kGuideGap);
+
+    // Right strip: one short tip per always-visible right-column indicator (shutUpBounds etc.,
+    // computed above), each vertically centred on its own indicator's centre so a glance across
+    // from the real element to its explanation lands roughly level -- rather than just stacked top
+    // to bottom, which read as a plain list disconnected from what it was labelling. shutUpBounds/
+    // sprinkleCountBounds/noteBounds sit close together near the top (see rightCursor's own
+    // layout), close enough that two of their tips can collide if either wraps to several lines in
+    // this narrow strip -- alignGuideTip's `prevBottom` clamp pushes a tip down just enough to
+    // clear the one above it when that happens, so centring is a preference, not a guarantee.
+    const IRECT guideTipStrip = tabContentArea.GetReducedFromLeft(guideColumn.W() + kGuideRightGap);
+    float guideTipPrevBottom = -guideTipStrip.H(); // no prior tip yet -- can't clamp against one
+    auto alignGuideTip = [&](const char* tipText, const IRECT& target) {
+      const float h = GuideTextControl::MeasureHeight(*pGraphics, tipText, kGuideTipText, kGuideBoldFontID, guideTipStrip.W());
+      const float top = std::max(target.MH() - h * 0.5f, guideTipPrevBottom + kGuideGap);
+      guideTipPrevBottom = top + h;
+      return IRECT(guideTipStrip.L, top, guideTipStrip.R, top + h);
+    };
+    const IRECT guideTipShutUpBounds = alignGuideTip(kGuideTipShutUp, shutUpBounds);
+    const IRECT guideTipSprinkleCountBounds = alignGuideTip(kGuideTipSprinkleCount, sprinkleCountBounds);
+    const IRECT guideTipNoteDisplayBounds = alignGuideTip(kGuideTipNoteDisplay, noteBounds);
+    const IRECT guideTipEnvelopeMeterBounds = alignGuideTip(kGuideTipEnvelopeMeter, meterBounds);
+    const IRECT guideTipTriggerLightBounds = alignGuideTip(kGuideTipTriggerLight, triggerLightBounds);
+#endif
+
+    // Quick Guide tab: a single static overlay image (resources/img/quick_guide.png, 1118x769
+    // native pixels) replacing all the hand-placed prose/tip text above. Positioned at native
+    // (362, 43) within the same 1497x828-native canvas background.png occupies, then scaled by the
+    // same flat 0.5 that turns every native coordinate into a logical one here -- see CLAUDE.md's
+    // "Aspect ratio is locked" for why that one constant is exactly what background.png's own
+    // half-size PLUG_WIDTH/HEIGHT already uses. Deliberately positioned relative to the full canvas
+    // (bounds), not tabContentArea/guideColumn -- it starts inside the middle column but is meant
+    // to run past the middle/right divider into the right column.
+    constexpr float kGuideImageNativeX = 362.f;
+    constexpr float kGuideImageNativeY = 43.f;
+    constexpr float kGuideImageNativeW = 1118.f;
+    constexpr float kGuideImageNativeH = 769.f;
+    constexpr float kNativeToLogical = 0.5f;
+    const IRECT guideImageBounds(bounds.L + kGuideImageNativeX * kNativeToLogical,
+                                  bounds.T + kGuideImageNativeY * kNativeToLogical,
+                                  bounds.L + (kGuideImageNativeX + kGuideImageNativeW) * kNativeToLogical,
+                                  bounds.T + (kGuideImageNativeY + kGuideImageNativeH) * kNativeToLogical);
 
     // Every control's position is statically defined -- see ParamClusterDesc::x/y and
     // ParamGroupDesc::x/y above -- rather than computed by a row-packing/flow algorithm. There's no
@@ -938,8 +1102,29 @@ Sparkles::Sparkles(const InstanceInfo& info)
       setTabbed(kCtrlTagKeyScale, keyScaleDropdownBounds, EUITab::NoteMatrix);
       setTabbed(kCtrlTagKeyMode, keyModeBounds, EUITab::NoteMatrix);
       setTabbed(kCtrlTagNoteMatrix, noteMatrixBounds, EUITab::NoteMatrix);
-      setTabbed(kCtrlTagQuickGuideImage, quickGuideBounds, EUITab::QuickGuide);
+#if 0 // superseded by kCtrlTagQuickGuideImage below -- see the #if 0 above for why these stay
+      setTabbed(kCtrlTagQuickGuideTitle, guideTitleBounds, EUITab::QuickGuide);
+      setTabbed(kCtrlTagQuickGuideIntro, guideIntroBounds, EUITab::QuickGuide);
+      setTabbed(kCtrlTagQuickGuideBullets, guideBulletsBounds, EUITab::QuickGuide);
+      setTabbed(kCtrlTagQuickGuideOutro, guideOutroBounds, EUITab::QuickGuide);
+      setTabbed(kCtrlTagQuickGuideDiagram, guideDiagramBounds, EUITab::QuickGuide);
+      setTabbed(kCtrlTagQuickGuideBodyBottom, guideBodyBottomBounds, EUITab::QuickGuide);
+      setTabbed(kCtrlTagQuickGuideTipShutUp, guideTipShutUpBounds, EUITab::QuickGuide);
+      setTabbed(kCtrlTagQuickGuideTipSprinkleCount, guideTipSprinkleCountBounds, EUITab::QuickGuide);
+      setTabbed(kCtrlTagQuickGuideTipNoteDisplay, guideTipNoteDisplayBounds, EUITab::QuickGuide);
+      setTabbed(kCtrlTagQuickGuideTipEnvelopeMeter, guideTipEnvelopeMeterBounds, EUITab::QuickGuide);
+      setTabbed(kCtrlTagQuickGuideTipTriggerLight, guideTipTriggerLightBounds, EUITab::QuickGuide);
+#endif
+      setTabbed(kCtrlTagQuickGuideImage, guideImageBounds, EUITab::QuickGuide);
       setTabbed(kCtrlTagNoteBars, noteBarsBounds, EUITab::Detection);
+
+      // Visible on 3 tabs (General/PitchTiming/Synth), not just 1, so it's not wired through the
+      // single-tab setTabbed helper above -- see kCtrlTagFootnote's comment in Sparkles.h.
+      {
+        IControl* pFootnote = pGraphics->GetControlWithTag(kCtrlTagFootnote);
+        pFootnote->SetTargetAndDrawRECTs(footnoteBounds);
+        pFootnote->Hide(!(activeTab == EUITab::General || activeTab == EUITab::PitchTiming || activeTab == EUITab::Synth));
+      }
 
       for (int i = 0; i < (int) flatControls.size(); i++) {
         // Seed (§7.6) is only meaningful when Panning = Random -- combine the ordinary
@@ -1013,7 +1198,7 @@ Sparkles::Sparkles(const InstanceInfo& info)
     pGraphics->AttachControl(new InsetShadowButtonControl(tabQuickGuideBounds, [&](IControl* pCaller) {
       SplashClickActionFunc(pCaller);
       mActiveTab = (int) EUITab::QuickGuide; mLayoutFunc(pCaller->GetUI());
-    }, "Guide", MakeTabStyle(0), &mActiveTab, (int) EUITab::QuickGuide), kCtrlTagTabQuickGuide);
+    }, "Quick Guide", MakeTabStyle(0), &mActiveTab, (int) EUITab::QuickGuide), kCtrlTagTabQuickGuide);
     pGraphics->AttachControl(new InsetShadowButtonControl(tabGeneralBounds, [&](IControl* pCaller) {
       SplashClickActionFunc(pCaller);
       mActiveTab = (int) EUITab::General; mLayoutFunc(pCaller->GetUI());
@@ -1055,8 +1240,39 @@ Sparkles::Sparkles(const InstanceInfo& info)
       }, presetLabel.Get(), presetStyle), kCtrlTagPresets);
     }
 
-    pGraphics->AttachControl(new ITextControl(quickGuideBounds, "Quick Guide -- image pending",
-      IText(16.f, sparkle_palette::kLinesOuter, sparkle_palette::kFontFredokaMedium)), kCtrlTagQuickGuideImage);
+#if 0 // superseded by kCtrlTagQuickGuideImage below -- see the #if 0 above for why these stay
+    pGraphics->AttachControl(new ITextControl(guideTitleBounds, "Quick Guide", kGroupLabelText), kCtrlTagQuickGuideTitle);
+    pGraphics->AttachControl(new GuideTextControl(guideIntroBounds, kGuideIntroText,
+      kGuideBodyText, kGuideBoldFontID), kCtrlTagQuickGuideIntro);
+    pGraphics->AttachControl(new GuideTextControl(guideBulletsBounds, kGuideBulletsText,
+      kGuideBodyText, kGuideBoldFontID), kCtrlTagQuickGuideBullets);
+    pGraphics->AttachControl(new GuideTextControl(guideOutroBounds, kGuideOutroText,
+      kGuideBodyText, kGuideBoldFontID), kCtrlTagQuickGuideOutro);
+    pGraphics->AttachControl(new ITextControl(guideDiagramBounds, "(diagram coming soon)",
+      kGuideBodyText.WithAlign(EAlign::Center).WithVAlign(EVAlign::Middle).WithFGColor(sparkle_palette::kLinesInterior),
+      sparkle_palette::kCardFill), kCtrlTagQuickGuideDiagram);
+    pGraphics->AttachControl(new GuideTextControl(guideBodyBottomBounds, kGuideBodyBottomText,
+      kGuideBodyText, kGuideBoldFontID), kCtrlTagQuickGuideBodyBottom);
+    pGraphics->AttachControl(new GuideTextControl(guideTipShutUpBounds, kGuideTipShutUp,
+      kGuideTipText, kGuideBoldFontID, EAlign::Far), kCtrlTagQuickGuideTipShutUp);
+    pGraphics->AttachControl(new GuideTextControl(guideTipSprinkleCountBounds, kGuideTipSprinkleCount,
+      kGuideTipText, kGuideBoldFontID, EAlign::Far), kCtrlTagQuickGuideTipSprinkleCount);
+    pGraphics->AttachControl(new GuideTextControl(guideTipNoteDisplayBounds, kGuideTipNoteDisplay,
+      kGuideTipText, kGuideBoldFontID, EAlign::Far), kCtrlTagQuickGuideTipNoteDisplay);
+    pGraphics->AttachControl(new GuideTextControl(guideTipEnvelopeMeterBounds, kGuideTipEnvelopeMeter,
+      kGuideTipText, kGuideBoldFontID, EAlign::Far), kCtrlTagQuickGuideTipEnvelopeMeter);
+    pGraphics->AttachControl(new GuideTextControl(guideTipTriggerLightBounds, kGuideTipTriggerLight,
+      kGuideTipText, kGuideBoldFontID, EAlign::Far), kCtrlTagQuickGuideTipTriggerLight);
+#endif
+    // Quick Guide tab overlay -- see the guideImageBounds comment above. BackgroundImageControl
+    // (ui/BackgroundImageControl.h) is reused as-is: it's already exactly "stretch this bitmap to
+    // fill mRECT via DrawFittedBitmap", which is what's needed here too, just at a smaller rect
+    // than the full canvas.
+    const IBitmap quickGuideBitmap = pGraphics->LoadBitmap(QUICK_GUIDE_FN);
+    pGraphics->AttachControl(new BackgroundImageControl(guideImageBounds, quickGuideBitmap), kCtrlTagQuickGuideImage);
+
+    pGraphics->AttachControl(new ITextControl(footnoteBounds, "* changes only reflected on next sprinkle",
+      kFootnoteText), kCtrlTagFootnote);
 
     pGraphics->AttachControl(new EnvelopeMeterControl(meterBounds, kParamThreshold), kCtrlTagEnvelopeMeter);
     pGraphics->AttachControl(new ValueDisplayControl<2>(noteBounds, "--",
@@ -1323,6 +1539,11 @@ void Sparkles::ShutUp()
 {
   mTriggerPending = false;
 
+  // Drop every note still waiting on its structure-only launch (see mPendingNotes) before it can
+  // be resolved/scheduled -- without this, a note queued but not yet due would survive a Shut Up
+  // and still fire later, since mEventScheduler/mSynthEngine (cleared below) never even saw it yet.
+  mPendingNotes.Reset();
+
   // Explicitly turn off every note we've actually sent a real Note On for and haven't turned off
   // yet -- mEventScheduler.StopAll() drains exactly those (its note-off pool), as immediate events,
   // and silently drops any note-ons that hadn't fired yet (nothing to turn off for those). Don't
@@ -1496,14 +1717,16 @@ void Sparkles::FireSprinkle(int triggerNote, int64_t triggerSample, int64_t time
   for (const auto& event : mScratchEvents) {
     const int64_t atSample = triggerSample + event.timeOffsetSamples;
 
-    if (sendMidi)
-      mEventScheduler.Schedule(event.note, event.velocity, event.durationSamples, atSample);
-
-    if (sendAudio) {
-      mSynthEngine.ScheduleVoice(event.note, event.velocity, event.pan, event.attackSamples,
-                                  event.decaySamples, event.sustainLevel, event.releaseSamples,
-                                  event.durationSamples, atSample);
-    }
+    // Structure (pitch/timing, already resolved above) queues here now instead of scheduling
+    // straight into mEventScheduler/mSynthEngine -- ProcessBlock resolves velocity/pan/duration/
+    // ADSR itself, right before atSample is actually due, against whatever SparkleParams is live
+    // *then* rather than the params captured here at trigger time (see core/PendingNoteQueue.h and
+    // core/SparkleGenerator.h's ResolveEventProperties). event.velocity/durationSamples/etc, still
+    // populated by Generate() above, are used only for the sprinkleEndSample estimate just below --
+    // an honest trigger-time approximation for the kMaxSimultaneousSprinkles cap, same as before
+    // this change, not the values that will actually be scheduled.
+    mPendingNotes.Push(atSample, event.note, event.rayN, event.sparkleN, triggerNote, timelineSample,
+                        sendMidi, sendAudio);
 
     const int row = sparkle_core::PitchClassOf(event.note);
     mFlashScheduler.Schedule(triggerColumn * sparkle_core::kNumPitchClasses + row, 0, 0, atSample);
@@ -1665,6 +1888,36 @@ void Sparkles::ProcessBlock(sample** inputs, sample** outputs, int nFrames)
     for (int c = 0; c < nChans; c++) {
       outputs[c][s] = inputs[c][s] * gain;
     }
+  }
+
+  // Resolve and schedule every pending note now due this block, against THIS block's own live
+  // snapshot -- see mPendingNotes' header comment in Sparkles.h. Placed here (after every trigger
+  // this block could have fired above, before mSynthEngine.Render()/mEventScheduler.FlushBlock()
+  // below) so a note pushed earlier in this very call -- e.g. a manual trigger, or an audio/MIDI
+  // trigger with zero pre_delay -- is still captured this same block instead of deferred a block
+  // late. Looped the same way as the FlushBlock drains further down, since PopDue only fills up to
+  // outCapacity per call.
+  {
+    std::array<sparkle_core::PendingNote, 64> dueNotes;
+    size_t nDueNotes;
+    do {
+      nDueNotes = mPendingNotes.PopDue(blockStart + nFrames, dueNotes.data(), dueNotes.size());
+
+      for (size_t i = 0; i < nDueNotes; i++) {
+        const sparkle_core::PendingNote& due = dueNotes[i];
+        const sparkle_core::SparkleEventProperties props = sparkle_core::SparkleGenerator::ResolveEventProperties(
+          snapshot.sparkle, due.rayN, due.sparkleN, due.triggerNote, due.timelineSample, bpm, sampleRate);
+
+        if (due.sendMidi)
+          mEventScheduler.Schedule(due.note, props.velocity, props.durationSamples, due.atSample);
+
+        if (due.sendAudio) {
+          mSynthEngine.ScheduleVoice(due.note, props.velocity, props.pan, props.attackSamples,
+                                      props.decaySamples, props.sustainLevel, props.releaseSamples,
+                                      props.durationSamples, due.atSample);
+        }
+      }
+    } while (nDueNotes == dueNotes.size());
   }
 
   // Audio Output Mode (§7.7): render every voice FireSprinkle scheduled into mSynthEngine this

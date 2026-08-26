@@ -23,6 +23,7 @@ iplug_add_plugin(${PROJECT_NAME}
     resources/resource.h
     core/DetectionParams.h
     core/NoteMatrix.h
+    core/PendingNoteQueue.h
     core/PitchTracker.h
     core/SparkleGenerator.h
     core/SynthEngine.h
@@ -32,6 +33,7 @@ iplug_add_plugin(${PROJECT_NAME}
     ui/BackgroundImageControl.h
     ui/EnvelopeMeterControl.h
     ui/GroupMarkerControl.h
+    ui/GuideTextControl.h
     ui/ModifierValueControl.h
     ui/NoteBarsControl.h
     ui/NoteMatrixControl.h
@@ -46,6 +48,7 @@ iplug_add_plugin(${PROJECT_NAME}
     resources/fonts/Fredoka-SemiBold.ttf
     resources/fonts/Fredoka-Bold.ttf
     resources/img/background.png
+    resources/img/quick_guide.png
   FORMATS
     MINIMAL_PLUGINS APP WASM
 )
@@ -59,11 +62,13 @@ add_executable(sparkle_tests
   tests/test_event_scheduler.cpp
   tests/test_pitch_tracker.cpp
   tests/test_synth_engine.cpp
+  tests/test_pending_note_queue.cpp
   core/NoteMatrix.h
   core/PitchTracker.h
   core/SparkleGenerator.h
   core/EventScheduler.h
   core/SynthEngine.h
+  core/PendingNoteQueue.h
 )
 target_compile_features(sparkle_tests PRIVATE cxx_std_17)
 
